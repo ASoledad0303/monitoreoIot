@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
+import MainMenu from '@/components/MainMenu';
 
 type TelemetryMsg = { vrms?: number; irms?: number; s_apparent_va?: number; ts?: number };
 type WsEnvelope =
@@ -39,7 +40,10 @@ export default function Page() {
     <main className="min-h-dvh w-full bg-zinc-950 text-zinc-100 p-6">
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Monitoreo energético — tiempo real (WS)</h1>
+          <div className="flex items-center gap-4">
+            <MainMenu />
+            <h1 className="text-2xl font-semibold tracking-tight">Monitoreo energético — tiempo real (WS)</h1>
+          </div>
           <div className="flex items-center gap-2">
             <span className={`inline-block h-3 w-3 rounded-full ${statusColor}`} />
             <span className="text-sm text-zinc-300">WS: {status}</span>
