@@ -9,7 +9,8 @@ import {
   ListItemText,
   IconButton,
   Box,
-  Divider
+  Divider,
+  Typography
 } from '@mui/material';
 import { 
   BarChart as ChartIcon,
@@ -17,7 +18,8 @@ import {
   Settings as SettingsIcon,
   ShowChart as MonitorIcon,
   Receipt as BillIcon,
-  Menu as MenuIcon
+  Menu as MenuIcon,
+  Logout as LogoutIcon
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 
@@ -31,6 +33,14 @@ export default function MainMenu() {
 
   const handleNavigation = (path: string) => {
     router.push(path);
+    setOpen(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    router.push('/login');
     setOpen(false);
   };
 
@@ -60,15 +70,18 @@ export default function MainMenu() {
         onClose={toggleDrawer(false)}
       >
         <Box
-          sx={{ width: 250 }}
+          sx={{ width: { xs: 280, sm: 300 } }}
           role="presentation"
         >
-          <Box sx={{ p: 2, fontWeight: 'bold', fontSize: '1.2rem' }}>
-            Sistema IoT
+          <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="subtitle1" fontWeight={700}>Sistema IoT</Typography>
+            <IconButton size="small" onClick={toggleDrawer(false)}>
+              <MenuIcon />
+            </IconButton>
           </Box>
           <Divider />
           <List>
-            {menuItems.slice(0, 4).map((item, index) => (
+            {menuItems.slice(0, 4).map((item) => (
               <ListItem 
                 key={item.text} 
                 onClick={() => handleNavigation(item.path)}
@@ -95,6 +108,15 @@ export default function MainMenu() {
                 <ListItemText primary={item.text} />
               </ListItem>
             ))}
+          </List>
+          <Divider />
+          <List>
+            <ListItem onClick={handleLogout} sx={{ cursor: 'pointer', color: 'error.main' }}>
+              <ListItemIcon>
+                <LogoutIcon color="error" />
+              </ListItemIcon>
+              <ListItemText primary="Cerrar sesión" />
+            </ListItem>
           </List>
         </Box>
       </Drawer>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Box,
   Typography,
@@ -18,7 +18,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip
+  Chip,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Lock as LockIcon,
@@ -26,9 +28,12 @@ import {
   Policy as PolicyIcon,
   Settings as SettingsIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon
 } from '@mui/icons-material';
 import MainMenu from '@/components/MainMenu';
+import { ColorModeContext } from '@/app/providers';
 
 // Mock del usuario actual (en producción vendría del contexto/JWT)
 const mockUser = {
@@ -68,6 +73,7 @@ export default function ConfiguracionPage() {
   // Estados de carga y mensajes
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { mode, toggleColorMode } = useContext(ColorModeContext);
 
   // Handlers para cambio de contraseña
   const handlePasswordSubmit = async () => {
@@ -183,6 +189,29 @@ export default function ConfiguracionPage() {
             >
               Cambiar
             </Button>
+          </Paper>
+        </Grid>
+
+
+        {/* Cambiar contraseña */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
+            {mode === 'dark' ? (
+              <DarkModeIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+            ) : (
+              <LightModeIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+            )}
+            <Typography variant="h6" gutterBottom>
+              Apariencia
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Alterna entre tema claro y oscuro
+            </Typography>
+            <FormControlLabel
+              control={<Switch checked={mode === 'dark'} onChange={toggleColorMode} />}
+              label={mode === 'dark' ? 'Tema oscuro' : 'Tema claro'}
+              sx={{ display: 'flex', justifyContent: 'center' }}
+            />
           </Paper>
         </Grid>
 
