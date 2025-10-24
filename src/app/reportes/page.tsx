@@ -195,40 +195,28 @@ export default function ReporteConsumo() {
           Filtros de búsqueda
         </Typography>
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={3}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(4, 1fr)' }, gap: 2, alignItems: 'center' }}>
+            <Box>
               <DatePicker
                 label="Fecha desde"
                 value={fechaDesde}
                 onChange={(newValue) => setFechaDesde(newValue)}
-                slotProps={{ 
-                  textField: { 
-                    fullWidth: true, 
-                    size: "small" 
-                  } 
-                }}
+                slotProps={{ textField: { fullWidth: true, size: 'small' } }}
                 minDate={new Date(2020, 0, 1)}
                 maxDate={new Date(2025, 11, 31)}
               />
-            </Grid>
-            
-            <Grid item xs={12} sm={3}>
+            </Box>
+            <Box>
               <DatePicker
                 label="Fecha hasta"
                 value={fechaHasta}
                 onChange={(newValue) => setFechaHasta(newValue)}
-                slotProps={{ 
-                  textField: { 
-                    fullWidth: true, 
-                    size: "small" 
-                  } 
-                }}
+                slotProps={{ textField: { fullWidth: true, size: 'small' } }}
                 minDate={fechaDesde || new Date(2020, 0, 1)}
                 maxDate={new Date(2025, 11, 31)}
               />
-            </Grid>
-            
-            <Grid item xs={12} sm={3}>
+            </Box>
+            <Box>
               <Button 
                 variant="contained" 
                 onClick={aplicarFiltros}
@@ -237,9 +225,8 @@ export default function ReporteConsumo() {
               >
                 {loading ? <CircularProgress size={24} /> : 'Consultar'}
               </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={3}>
+            </Box>
+            <Box>
               <Button 
                 variant="outlined" 
                 color="primary"
@@ -250,8 +237,8 @@ export default function ReporteConsumo() {
               >
                 Descargar PDF
               </Button>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </LocalizationProvider>
       </Paper>
       

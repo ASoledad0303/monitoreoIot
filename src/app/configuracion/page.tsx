@@ -171,9 +171,8 @@ export default function ConfiguracionPage() {
       </Paper>
 
       {/* Opciones de configuración */}
-      <Grid container spacing={3}>
-        {/* Cambiar contraseña */}
-        <Grid item xs={12} sm={6} md={3}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 3 }}>
+        <Box>
           <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
             <LockIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
@@ -190,11 +189,9 @@ export default function ConfiguracionPage() {
               Cambiar
             </Button>
           </Paper>
-        </Grid>
-
-
-        {/* Cambiar contraseña */}
-        <Grid item xs={12} sm={6} md={3}>
+        </Box>
+      
+        <Box>
           <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
             {mode === 'dark' ? (
               <DarkModeIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
@@ -213,10 +210,9 @@ export default function ConfiguracionPage() {
               sx={{ display: 'flex', justifyContent: 'center' }}
             />
           </Paper>
-        </Grid>
-
-        {/* Actualizar datos personales */}
-        <Grid item xs={12} sm={6} md={3}>
+        </Box>
+      
+        <Box>
           <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
             <PersonIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
@@ -233,31 +229,10 @@ export default function ConfiguracionPage() {
               Actualizar
             </Button>
           </Paper>
-        </Grid>
-
-        {/* Políticas y condiciones */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
-            <PolicyIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-            <Typography variant="h6" gutterBottom>
-              Políticas y condiciones
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Consulta los términos de uso
-            </Typography>
-            <Button 
-              variant="outlined" 
-              fullWidth
-              onClick={() => setModalPoliticas(true)}
-            >
-              Ver términos
-            </Button>
-          </Paper>
-        </Grid>
-
-        {/* Configurar umbrales (solo admin) */}
+        </Box>
+      
         {mockUser.role === 'admin' && (
-          <Grid item xs={12} sm={6} md={3}>
+          <Box>
             <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
               <SettingsIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
               <Typography variant="h6" gutterBottom>
@@ -274,9 +249,9 @@ export default function ConfiguracionPage() {
                 Configurar
               </Button>
             </Paper>
-          </Grid>
+          </Box>
         )}
-      </Grid>
+      </Box>
 
       {/* Modal: Cambiar contraseña */}
       <Dialog open={modalPassword} onClose={() => setModalPassword(false)} maxWidth="sm" fullWidth>
@@ -314,20 +289,20 @@ export default function ConfiguracionPage() {
           />
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2">Requisitos de la contraseña:</Typography>
-          <Grid container spacing={1} sx={{ mt: 1 }}>
-            <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ mt: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {passwordForm.new.length >= 8 ? <CheckCircleIcon color="success" /> : <CancelIcon color="error" />}
               <Typography variant="body2">Mínimo 8 caracteres</Typography>
-            </Grid>
-            <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {/\d/.test(passwordForm.new) ? <CheckCircleIcon color="success" /> : <CancelIcon color="error" />}
               <Typography variant="body2">Al menos un número</Typography>
-            </Grid>
-            <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {/[^A-Za-z0-9]/.test(passwordForm.new) ? <CheckCircleIcon color="success" /> : <CancelIcon color="error" />}
               <Typography variant="body2">Al menos un carácter especial (!@#$%^&*...)</Typography>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setModalPassword(false)}>Cancelar</Button>
@@ -428,7 +403,7 @@ export default function ConfiguracionPage() {
             5. Limitaciones de responsabilidad
           </Typography>
           <Typography variant="body2" paragraph>
-            El sistema se proporciona "tal como está". No garantizamos la disponibilidad continua del servicio ni la precisión absoluta de las mediciones.
+            El sistema se proporciona &quot;tal como está&quot;. No garantizamos la disponibilidad continua del servicio ni la precisión absoluta de las mediciones.
           </Typography>
 
           <Typography variant="subtitle1" sx={{ mt: 2, mb: 1, fontWeight: 'bold' }}>
@@ -460,30 +435,26 @@ export default function ConfiguracionPage() {
           <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
             Rango de voltaje (V)
           </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-              <TextField
-                label="Voltaje mínimo"
-                type="number"
-                fullWidth
-                variant="outlined"
-                value={umbralesForm.voltajeMin}
-                onChange={(e) => setUmbralesForm(prev => ({ ...prev, voltajeMin: Number(e.target.value) }))}
-                inputProps={{ min: 0, step: 1 }}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                label="Voltaje máximo"
-                type="number"
-                fullWidth
-                variant="outlined"
-                value={umbralesForm.voltajeMax}
-                onChange={(e) => setUmbralesForm(prev => ({ ...prev, voltajeMax: Number(e.target.value) }))}
-                inputProps={{ min: 0, step: 1 }}
-              />
-            </Grid>
-          </Grid>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)' }, gap: 2 }}>
+            <TextField
+              label="Voltaje mínimo"
+              type="number"
+              fullWidth
+              variant="outlined"
+              value={umbralesForm.voltajeMin}
+              onChange={(e) => setUmbralesForm(prev => ({ ...prev, voltajeMin: Number(e.target.value) }))}
+              inputProps={{ min: 0, step: 1 }}
+            />
+            <TextField
+              label="Voltaje máximo"
+              type="number"
+              fullWidth
+              variant="outlined"
+              value={umbralesForm.voltajeMax}
+              onChange={(e) => setUmbralesForm(prev => ({ ...prev, voltajeMax: Number(e.target.value) }))}
+              inputProps={{ min: 0, step: 1 }}
+            />
+          </Box>
 
           <Typography variant="subtitle1" gutterBottom sx={{ mt: 3 }}>
             Consumo energético máximo (kWh)

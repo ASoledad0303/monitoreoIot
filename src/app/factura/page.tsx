@@ -126,8 +126,8 @@ export default function CompararFactura() {
           Ingresar datos de factura
         </Typography>
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={4}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, alignItems: 'center' }}>
+            <Box>
               <DatePicker
                 label="Mes de facturación"
                 value={mes}
@@ -137,8 +137,8 @@ export default function CompararFactura() {
                 minDate={new Date(2020, 0, 1)}
                 maxDate={new Date(2025, 11, 31)}
               />
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </Box>
+            <Box>
               <TextField
                 label="Potencia activa facturada (kW)"
                 value={potenciaFacturadaKW}
@@ -148,13 +148,13 @@ export default function CompararFactura() {
                 fullWidth
                 size="small"
               />
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </Box>
+            <Box>
               <Button variant="contained" onClick={onAgregarActualizar} fullWidth>
                 {editId ? 'Actualizar' : 'Agregar'}
               </Button>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </LocalizationProvider>
 
         <Box sx={{ mt: 2, color: 'text.secondary' }}>

@@ -36,37 +36,43 @@ export default function Page() {
     }
   }, [status]);
 
-  return (
-    <main className="min-h-dvh w-full bg-zinc-950 text-zinc-100 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <MainMenu />
-            <h1 className="text-2xl font-semibold tracking-tight">Monitoreo energético — tiempo real (WS)</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`inline-block h-3 w-3 rounded-full ${statusColor}`} />
-            <span className="text-sm text-zinc-300">WS: {status}</span>
-          </div>
-        </header>
+  const theme = useTheme();
+  const axisColor = theme.palette.text.secondary;
+  const gridColor = theme.palette.divider;
+  const tooltipBg = theme.palette.background.paper;
+  const tooltipColor = theme.palette.text.primary;
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+  return (
+    <Box sx={{ minHeight: '100dvh', width: '100%', bgcolor: 'background.default', color: 'text.primary', p: { xs: 3, sm: 4 } }}>
+      <Box sx={{ mx: 'auto', maxWidth: 1200, display: 'grid', gap: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <MainMenu />
+            <Typography variant="h5" fontWeight={600}>Monitoreo energético — tiempo real (WS)</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <span className={`inline-block h-3 w-3 rounded-full ${statusColor}`} />
+            <Typography variant="body2" color="text.secondary">WS: {status}</Typography>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
           <KpiCard title="Vrms" value={`${lastVrms} V`} />
           <KpiCard title="Irms" value={`${lastIrms} A`} />
           <KpiCard title="S (aparente)" value={`${lastS} VA`} />
-        </section>
+        </Box>
 
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow">
-          <div className="mb-3 text-sm text-zinc-300">Ventana: últimos {MAX_POINTS} puntos</div>
-          <div className="h-[380px]">
+        <Paper sx={{ borderRadius: 3, p: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Ventana: últimos {MAX_POINTS} puntos</Typography>
+          <Box sx={{ height: 380 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <CartesianGrid stroke="#27272a" />
-                <XAxis dataKey="ts" tickFormatter={fmtTime} stroke="#a1a1aa" tick={{ fill: '#a1a1aa' }} />
-                <YAxis yAxisId="left" stroke="#a1a1aa" tick={{ fill: '#a1a1aa' }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#a1a1aa" tick={{ fill: '#a1a1aa' }} />
+                <CartesianGrid stroke={gridColor} />
+                <XAxis dataKey="ts" tickFormatter={fmtTime} stroke={axisColor} tick={{ fill: axisColor }} />
+                <YAxis yAxisId="left" stroke={axisColor} tick={{ fill: axisColor }} />
+                <YAxis yAxisId="right" orientation="right" stroke={axisColor} tick={{ fill: axisColor }} />
                 <Tooltip
-                  contentStyle={{ background: '#09090b', border: '1px solid #27272a' }}
+                  contentStyle={{ background: tooltipBg, border: `1px solid ${gridColor}`, color: tooltipColor }}
                   labelFormatter={(ts) => fmtTime(Number(ts))}
                 />
                 <Legend />
@@ -75,10 +81,10 @@ export default function Page() {
                 <Line type="monotone" dataKey="S"    name="S (VA)"  yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-        </section>
-      </div>
-    </main>
+          </Box>
+        </Paper>
+      </Box>
+    </Box>
   );
 }
 
@@ -203,9 +209,9 @@ const fmtTime = (ts: number) =>
 
 function KpiCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow">
-      <div className="text-sm text-zinc-400">{title}</div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
-    </div>
+    <Paper sx={{ borderRadius: 3, p: 2 }}>
+      <Typography variant="body2" color="text.secondary">{title}</Typography>
+      <Typography variant="h6" fontWeight={600} sx={{ mt: 0.5 }}>{value}</Typography>
+    </Paper>
   );
 }
