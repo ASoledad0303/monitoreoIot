@@ -108,6 +108,14 @@ function LoginForm() {
               <Button variant="text" onClick={() => router.push("/register")} fullWidth sx={{ color: "text.secondary" }}>
                 Crear cuenta
               </Button>
+              <Button variant="text" onClick={() => router.push("/forgot-password")} fullWidth sx={{ color: "text.secondary" }}>
+                Olvidé mi contraseña
+              </Button>
+              {error?.toLowerCase().includes('verificado') && (
+                <Button variant="text" onClick={() => router.push(`/verify-email?email=${encodeURIComponent(email)}`)} fullWidth sx={{ color: "text.secondary" }}>
+                  Verificar mi correo
+                </Button>
+              )}
             </Stack>
           </form>
         </Stack>

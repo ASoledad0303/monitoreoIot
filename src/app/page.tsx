@@ -5,7 +5,8 @@ import {
   LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
 import MainMenu from '@/components/MainMenu';
-
+import { Box, Paper, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 type TelemetryMsg = { vrms?: number; irms?: number; s_apparent_va?: number; ts?: number };
 type WsEnvelope =
   | { topic: 'snapshot'; data: { metrics?: TelemetryMsg; telemetry?: TelemetryMsg } }
@@ -76,10 +77,13 @@ export default function Page() {
                   labelFormatter={(ts) => fmtTime(Number(ts))}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="Vrms" name="Vrms (V)" yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
-                <Line type="monotone" dataKey="Irms" name="Irms (A)" yAxisId="right" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
-                <Line type="monotone" dataKey="S"    name="S (VA)"  yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
-              </LineChart>
+-                <Line type="monotone" dataKey="Vrms" name="Vrms (V)" yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
+-                <Line type="monotone" dataKey="Irms" name="Irms (A)" yAxisId="right" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
+-                <Line type="monotone" dataKey="S"    name="S (VA)"  yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} />
++                <Line type="monotone" dataKey="Vrms" name="Vrms (V)" yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} stroke={theme.palette.primary.main} />
++                <Line type="monotone" dataKey="Irms" name="Irms (A)" yAxisId="right" dot={false} isAnimationActive={false} strokeOpacity={0.9} stroke={theme.palette.secondary.main} />
++                <Line type="monotone" dataKey="S"    name="S (VA)"  yAxisId="left" dot={false} isAnimationActive={false} strokeOpacity={0.9} stroke={theme.palette.info.main} />
+                 </LineChart>
             </ResponsiveContainer>
           </Box>
         </Paper>

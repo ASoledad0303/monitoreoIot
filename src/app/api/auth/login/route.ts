@@ -19,8 +19,8 @@ export async function POST(req: Request) {
 
     const { email, password } = parsed.data;
 
-    const res = await query<{ id: number; email: string; password_hash: string; name: string }>(
-      'SELECT id, email, password_hash, name FROM users WHERE email = $1',
+    const res = await query<{ id: number; email: string; password_hash: string; name: string; email_verified: boolean }>(
+      'SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1',
       [email]
     );
 
@@ -32,6 +32,10 @@ export async function POST(req: Request) {
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
       return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
+    }
+
+    if (!user.email_verified) {
+      return NextResponse.json({ error: 'Correo no verificado' }, { status: 403 });
     }
 
     const token = signToken({ sub: user.id, email: user.email, name: user.name });

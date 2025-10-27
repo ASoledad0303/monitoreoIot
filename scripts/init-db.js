@@ -38,6 +38,19 @@ async function createTables() {
       name VARCHAR(80) NOT NULL,
       email VARCHAR(160) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      email_verified BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type VARCHAR(20) NOT NULL, -- 'verify' | 'reset'
+      code VARCHAR(12) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);

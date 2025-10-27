@@ -26,8 +26,14 @@ export default function RegisterPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error de registro");
+      try {
+        await fetch('/api/auth/send-verification-code', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+      } catch {}
       setOk(true);
-      setTimeout(() => router.push("/login"), 800);
+      setTimeout(() => router.push(`/verify-email?email=${encodeURIComponent(email)}`), 800);
     } catch (err: any) {
       setError(err.message || "Error inesperado");
     } finally {
