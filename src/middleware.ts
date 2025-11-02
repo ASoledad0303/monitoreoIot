@@ -1,25 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATHS = [
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/reset-password',
-  '/verify-email',
-  '/api/auth/login',
-  '/api/auth/register',
-  '/api/auth/forgot-password',
-  '/api/auth/reset-password',
-  '/api/auth/send-verification-code',
-  '/api/auth/verify-email',
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/auth/send-verification-code",
+  "/api/auth/verify-email",
+  "/api/auth/verify-2fa",
 ];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return true;
-  if (pathname.startsWith('/_next')) return true;
-  if (pathname.startsWith('/static')) return true;
-  if (pathname === '/favicon.ico') return true;
-  if (pathname === '/robots.txt') return true;
+  if (pathname.startsWith("/_next")) return true;
+  if (pathname.startsWith("/static")) return true;
+  if (pathname === "/favicon.ico") return true;
+  if (pathname === "/robots.txt") return true;
   return false;
 }
 
@@ -31,10 +32,10 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = req.cookies.get('auth_token');
+  const token = req.cookies.get("auth_token");
   if (!token?.value) {
-    const loginUrl = new URL('/login', req.url);
-    loginUrl.searchParams.set('redirect', pathname);
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -43,5 +44,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt).*)'],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt).*)"],
 };

@@ -1,54 +1,90 @@
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import { query } from '@/lib/db';
-import { signToken } from '@/lib/jwt';
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { query } from "@/lib/db";
+import { sendMail, render2FAEmail } from "@/lib/mailer";
 
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6).max(100),
 });
 
+function genCode(len = 6) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < len; i++)
+    out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const parsed = LoginSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
+      return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
     }
 
     const { email, password } = parsed.data;
 
-    const res = await query<{ id: number; email: string; password_hash: string; name: string; email_verified: boolean }>(
-      'SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1',
+    const res = await query<{
+      id: number;
+      email: string;
+      password_hash: string;
+      name: string;
+      email_verified: boolean;
+    }>(
+      "SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1",
       [email]
     );
 
     const user = res.rows[0];
     if (!user) {
-      return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
+      return NextResponse.json(
+        { error: "Credenciales inválidas" },
+        { status: 401 }
+      );
     }
 
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
-      return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
+      return NextResponse.json(
+        { error: "Credenciales inválidas" },
+        { status: 401 }
+      );
     }
 
     if (!user.email_verified) {
-      return NextResponse.json({ error: 'Correo no verificado' }, { status: 403 });
+      return NextResponse.json(
+        { error: "Correo no verificado" },
+        { status: 403 }
+      );
     }
 
-    const token = signToken({ sub: user.id, email: user.email, name: user.name });
-    const resp = NextResponse.json({ ok: true });
-    resp.cookies.set('auth_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 días
+    // Generar código 2FA
+    const code2FA = genCode();
+    const expiresInMin = 10;
+    await query(
+      `INSERT INTO user_tokens (user_id, type, code, expires_at)
+       VALUES ($1, '2fa', $2, NOW() + INTERVAL '${expiresInMin} minutes')`,
+      [user.id, code2FA]
+    );
+
+    // Enviar código 2FA por correo
+    await sendMail(
+      email,
+      "Código de verificación de dos factores",
+      render2FAEmail(code2FA)
+    );
+
+    // Retornar respuesta indicando que se requiere 2FA (sin crear token de sesión)
+    return NextResponse.json({
+      ok: true,
+      requires2FA: true,
+      email: email, // Enviar email para el siguiente paso
     });
-    return resp;
   } catch (e) {
-    return NextResponse.json({ error: 'Error de servidor' }, { status: 500 });
+    console.error("Error en login:", e);
+    return NextResponse.json({ error: "Error de servidor" }, { status: 500 });
   }
 }
