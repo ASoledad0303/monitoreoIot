@@ -13,6 +13,8 @@ const PUBLIC_PATHS = [
   "/api/auth/send-verification-code",
   "/api/auth/verify-email",
   "/api/auth/verify-2fa",
+  "/api/auth/me", // Permitir acceso a /me para verificar autenticación
+  // Las rutas /api/users/* requieren autenticación y se validan dentro de cada handler
 ];
 
 function isPublicPath(pathname: string) {

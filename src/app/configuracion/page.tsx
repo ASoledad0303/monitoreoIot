@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -20,7 +20,8 @@ import {
   MenuItem,
   Chip,
   Switch,
-  FormControlLabel
+  FormControlLabel,
+  CircularProgress
 } from '@mui/material';
 import {
   Lock as LockIcon,
@@ -35,23 +36,26 @@ import {
 import MainMenu from '@/components/MainMenu';
 import { ColorModeContext } from '@/app/providers';
 
-// Mock del usuario actual (en producción vendría del contexto/JWT)
-const mockUser = {
-  id: 1,
-  name: 'Juan Pérez',
-  email: 'juan.perez@email.com',
-  phone: '+57 300 123 4567',
-  role: 'admin' // 'admin' o 'user'
-};
-
-// Mock de umbrales actuales
-const mockUmbrales = {
+// Valores por defecto de umbrales
+const defaultUmbrales = {
   voltajeMin: 200,
   voltajeMax: 250,
   potenciaMax: 5000
 };
 
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: 'admin' | 'user';
+  phone?: string;
+}
+
 export default function ConfiguracionPage() {
+  // Estado del usuario
+  const [user, setUser] = useState<User | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
+
   // Estados para modales
   const [modalPassword, setModalPassword] = useState(false);
   const [modalPersonal, setModalPersonal] = useState(false);
@@ -65,15 +69,57 @@ export default function ConfiguracionPage() {
     confirm: ''
   });
   const [personalForm, setPersonalForm] = useState({
-    phone: mockUser.phone,
-    email: mockUser.email
+    phone: '',
+    email: ''
   });
-  const [umbralesForm, setUmbralesForm] = useState(mockUmbrales);
+  const [umbralesForm, setUmbralesForm] = useState(defaultUmbrales);
 
   // Estados de carga y mensajes
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const { mode, toggleColorMode } = useContext(ColorModeContext);
+
+  // Cargar información del usuario y umbrales
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data);
+          setPersonalForm({
+            phone: data.phone || '',
+            email: data.email
+          });
+        } else {
+          console.error('Error obteniendo usuario');
+        }
+      } catch (error) {
+        console.error('Error obteniendo usuario:', error);
+      } finally {
+        setUserLoading(false);
+      }
+    }
+    
+    async function fetchUmbrales() {
+      try {
+        const res = await fetch('/api/umbrales');
+        if (res.ok) {
+          const data = await res.json();
+          setUmbralesForm({
+            voltajeMin: data.voltaje_min || defaultUmbrales.voltajeMin,
+            voltajeMax: data.voltaje_max || defaultUmbrales.voltajeMax,
+            potenciaMax: data.potencia_max || defaultUmbrales.potenciaMax,
+          });
+        }
+      } catch (error) {
+        console.error('Error obteniendo umbrales:', error);
+      }
+    }
+
+    fetchUser();
+    fetchUmbrales();
+  }, []);
 
   // Handlers para cambio de contraseña
   const handlePasswordSubmit = async () => {
@@ -120,14 +166,36 @@ export default function ConfiguracionPage() {
 
   // Handlers para umbrales
   const handleUmbralesSubmit = async () => {
+    if (umbralesForm.voltajeMin >= umbralesForm.voltajeMax) {
+      setMessage({ type: 'error', text: 'El voltaje mínimo debe ser menor al máximo' });
+      return;
+    }
+    if (umbralesForm.potenciaMax <= 0) {
+      setMessage({ type: 'error', text: 'La potencia máxima debe ser mayor a 0' });
+      return;
+    }
+
     setLoading(true);
     try {
-      // Aquí iría la llamada al API
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simular API
+      const res = await fetch('/api/umbrales', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          voltaje_min: umbralesForm.voltajeMin,
+          voltaje_max: umbralesForm.voltajeMax,
+          potencia_max: umbralesForm.potenciaMax,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al actualizar umbrales');
+      }
+
       setMessage({ type: 'success', text: 'Umbrales actualizados correctamente' });
       setModalUmbrales(false);
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Error al actualizar los umbrales' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Error al actualizar los umbrales' });
     } finally {
       setLoading(false);
     }
@@ -155,20 +223,30 @@ export default function ConfiguracionPage() {
       )}
 
       {/* Información del usuario */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Usuario actual: {mockUser.name}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {mockUser.email}
-        </Typography>
-        <Chip 
-          label={mockUser.role === 'admin' ? 'Administrador' : 'Usuario'} 
-          color={mockUser.role === 'admin' ? 'primary' : 'default'}
-          size="small"
-          sx={{ mt: 1 }}
-        />
-      </Paper>
+      {userLoading ? (
+        <Paper sx={{ p: 3, mb: 3, textAlign: 'center' }}>
+          <CircularProgress />
+        </Paper>
+      ) : user ? (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Usuario actual: {user.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {user.email}
+          </Typography>
+          <Chip 
+            label={user.role === 'admin' ? 'Administrador' : 'Usuario'} 
+            color={user.role === 'admin' ? 'primary' : 'default'}
+            size="small"
+            sx={{ mt: 1 }}
+          />
+        </Paper>
+      ) : (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Alert severity="error">Error al cargar información del usuario</Alert>
+        </Paper>
+      )}
 
       {/* Opciones de configuración */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 3 }}>
@@ -231,7 +309,7 @@ export default function ConfiguracionPage() {
           </Paper>
         </Box>
       
-        {mockUser.role === 'admin' && (
+        {user && user.role === 'admin' && (
           <Box>
             <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
               <SettingsIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />

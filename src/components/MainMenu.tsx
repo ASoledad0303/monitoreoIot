@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Drawer,
   List,
@@ -19,14 +19,31 @@ import {
   ShowChart as MonitorIcon,
   Receipt as BillIcon,
   Menu as MenuIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  AdminPanelSettings as AdminIcon
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
+
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: 'admin' | 'user';
+}
 
 export default function MainMenu() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
   
+  useEffect(() => {
+    // Cargar información del usuario
+    fetch('/api/auth/me')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => data && setUser(data))
+      .catch(() => {});
+  }, []);
+
   const toggleDrawer = (isOpen: boolean) => () => {
     setOpen(isOpen);
   };
@@ -51,6 +68,11 @@ export default function MainMenu() {
     { text: 'Comparar factura', icon: <BillIcon />, path: '/factura' },
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion' }
   ];
+
+  // Agregar opción de administración solo para admins
+  const adminMenuItem = user?.role === 'admin' 
+    ? { text: 'Administración de usuarios', icon: <AdminIcon />, path: '/admin/usuarios' }
+    : null;
 
   return (
     <>
@@ -108,6 +130,17 @@ export default function MainMenu() {
                 <ListItemText primary={item.text} />
               </ListItem>
             ))}
+            {adminMenuItem && (
+              <ListItem 
+                onClick={() => handleNavigation(adminMenuItem.path)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <ListItemIcon>
+                  {adminMenuItem.icon}
+                </ListItemIcon>
+                <ListItemText primary={adminMenuItem.text} />
+              </ListItem>
+            )}
           </List>
           <Divider />
           <List>

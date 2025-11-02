@@ -33,8 +33,9 @@ export async function POST(req: Request) {
       password_hash: string;
       name: string;
       email_verified: boolean;
+      role: string;
     }>(
-      "SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1",
+      "SELECT id, email, password_hash, name, email_verified, role FROM users WHERE email = $1",
       [email]
     );
 

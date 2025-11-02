@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -14,43 +14,36 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Alert,
+  CircularProgress,
+  IconButton
 } from '@mui/material';
+import { Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import MainMenu from '@/components/MainMenu';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { es } from 'date-fns/locale';
 
-// Mock de consumo diario (similar al usado en reportes) para junio 2023
-interface ConsumoDia {
-  fecha: string; // YYYY-MM-DD
-  potencia: number; // W promedio del día
-}
-
-const mockConsumoJunio: ConsumoDia[] = [
-  { fecha: '2023-06-01', potencia: 1146.6 },
-  { fecha: '2023-06-02', potencia: 1077.0 },
-  { fecha: '2023-06-03', potencia: 1216.6 },
-  { fecha: '2023-06-04', potencia: 1100.5 },
-  { fecha: '2023-06-05', potencia: 1053.6 },
-  { fecha: '2023-06-06', potencia: 1170.2 },
-  { fecha: '2023-06-07', potencia: 1193.4 }
-];
-
 interface RegistroFactura {
-  id: string;
-  mesISO: string; // YYYY-MM
-  potenciaFacturadaKW: number;
-  potenciaMediaMedidaKW: number | null;
-  diferenciaKW: number | null;
+  id: number;
+  mes_iso: string; // YYYY-MM
+  potencia_facturada_kw: number;
+  potencia_media_medida_kw: number | null;
+  diferencia_kw: number | null;
 }
 
 export default function CompararFactura() {
-  const [mes, setMes] = useState<Date | null>(new Date(2023, 5, 1)); // junio 2023
+  const [mes, setMes] = useState<Date | null>(new Date());
   const [potenciaFacturadaKW, setPotenciaFacturadaKW] = useState<string>('');
   const [registros, setRegistros] = useState<RegistroFactura[]>([]);
-  const [editId, setEditId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [potenciaMediaMesKW, setPotenciaMediaMesKW] = useState<number | null>(null);
+  const [loadingPotencia, setLoadingPotencia] = useState(false);
 
   const mesISO = useMemo(() => {
     if (!mes) return '';
@@ -59,55 +52,160 @@ export default function CompararFactura() {
     return `${year}-${month}`;
   }, [mes]);
 
-  // Calcula la potencia media del mes seleccionado usando mocks (kW)
-  const potenciaMediaMesKW = useMemo(() => {
-    if (!mes) return null;
-    const year = mes.getFullYear();
-    const month = `${mes.getMonth() + 1}`.padStart(2, '0');
-    const dias = mockConsumoJunio.filter((d) => d.fecha.startsWith(`${year}-${month}`));
-    if (dias.length === 0) {
-      return null; // no hay datos para el mes seleccionado
+  // Cargar facturas al montar
+  useEffect(() => {
+    fetchFacturas();
+  }, []);
+
+  // Calcular potencia media del mes desde telemetry_history
+  useEffect(() => {
+    if (!mes) {
+      setPotenciaMediaMesKW(null);
+      return;
     }
-    const promedioW = dias.reduce((sum, d) => sum + d.potencia, 0) / dias.length;
-    return parseFloat((promedioW / 1000).toFixed(3)); // kW
+    fetchPotenciaMediaMes();
   }, [mes]);
+
+  const fetchFacturas = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/facturas');
+      if (!res.ok) throw new Error('Error al obtener facturas');
+      const data = await res.json();
+      setRegistros(data.facturas || []);
+    } catch (e: any) {
+      console.error('Error obteniendo facturas:', e);
+      setError(e.message || 'Error al cargar facturas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPotenciaMediaMes = async () => {
+    if (!mes) return;
+    
+    setLoadingPotencia(true);
+    try {
+      const year = mes.getFullYear();
+      const month = `${mes.getMonth() + 1}`.padStart(2, '0');
+      const fechaDesde = `${year}-${month}-01`;
+      const fechaHasta = `${year}-${month}-${new Date(year, mes.getMonth() + 1, 0).getDate()}`;
+
+      const res = await fetch(`/api/telemetry?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`);
+      if (!res.ok) {
+        setPotenciaMediaMesKW(null);
+        return;
+      }
+      const data = await res.json();
+      
+      const registrosMes = (data.data || []).filter((r: any) => r.potencia != null);
+      if (registrosMes.length === 0) {
+        setPotenciaMediaMesKW(null);
+        return;
+      }
+      
+      // Promedio de potencia en W, convertir a kW
+      const promedioW = registrosMes.reduce((sum: number, r: any) => sum + (r.potencia || 0), 0) / registrosMes.length;
+      setPotenciaMediaMesKW(parseFloat((promedioW / 1000).toFixed(3)));
+    } catch (e) {
+      console.error('Error calculando potencia media:', e);
+      setPotenciaMediaMesKW(null);
+    } finally {
+      setLoadingPotencia(false);
+    }
+  };
 
   const limpiarFormulario = () => {
     setPotenciaFacturadaKW('');
     setEditId(null);
   };
 
-  const onAgregarActualizar = () => {
+  const onAgregarActualizar = async () => {
     const valorNum = parseFloat(potenciaFacturadaKW);
-    if (isNaN(valorNum) || valorNum < 0) return;
-
-    const diferencia = potenciaMediaMesKW != null ? parseFloat((valorNum - potenciaMediaMesKW).toFixed(3)) : null;
-
-    if (editId) {
-      setRegistros((prev) => prev.map((r) => (r.id === editId ? { ...r, mesISO, potenciaFacturadaKW: valorNum, potenciaMediaMedidaKW: potenciaMediaMesKW, diferenciaKW: diferencia } : r)));
-    } else {
-      const nuevo: RegistroFactura = {
-        id: `${mesISO}-${Date.now()}`,
-        mesISO,
-        potenciaFacturadaKW: valorNum,
-        potenciaMediaMedidaKW: potenciaMediaMesKW,
-        diferenciaKW: diferencia
-      };
-      setRegistros((prev) => [nuevo, ...prev]);
+    if (isNaN(valorNum) || valorNum < 0) {
+      setError('Ingresa un valor válido');
+      return;
     }
-    limpiarFormulario();
+
+    if (!mesISO) {
+      setError('Selecciona un mes');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const diferencia = potenciaMediaMesKW != null ? parseFloat((valorNum - potenciaMediaMesKW).toFixed(3)) : null;
+
+      if (editId) {
+        // Actualizar factura existente
+        const res = await fetch(`/api/facturas/${editId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            potencia_facturada_kw: valorNum,
+            potencia_media_medida_kw: potenciaMediaMesKW,
+            diferencia_kw: diferencia,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Error al actualizar factura');
+        }
+      } else {
+        // Crear nueva factura
+        const res = await fetch('/api/facturas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mes_iso: mesISO,
+            potencia_facturada_kw: valorNum,
+            potencia_media_medida_kw: potenciaMediaMesKW,
+            diferencia_kw: diferencia,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Error al crear factura');
+        }
+      }
+
+      await fetchFacturas();
+      limpiarFormulario();
+    } catch (e: any) {
+      setError(e.message || 'Error al guardar factura');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const onEliminar = (id: string) => {
-    setRegistros((prev) => prev.filter((r) => r.id !== id));
+  const onEliminar = async (id: number) => {
+    if (!confirm('¿Estás seguro de eliminar esta factura?')) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/facturas/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al eliminar factura');
+      }
+      await fetchFacturas();
+    } catch (e: any) {
+      setError(e.message || 'Error al eliminar factura');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const onEditar = (id: string) => {
+  const onEditar = (id: number) => {
     const r = registros.find((x) => x.id === id);
     if (!r) return;
-    const [year, month] = r.mesISO.split('-').map((x) => parseInt(x, 10));
+    const [year, month] = r.mes_iso.split('-').map((x) => parseInt(x, 10));
     setMes(new Date(year, month - 1, 1));
-    setPotenciaFacturadaKW(r.potenciaFacturadaKW.toString());
+    setPotenciaFacturadaKW(r.potencia_facturada_kw.toString());
     setEditId(id);
   };
 
@@ -120,6 +218,12 @@ export default function CompararFactura() {
         <Typography variant="h4">Comparar factura</Typography>
       </Box>
       <Divider sx={{ mb: 3 }} />
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -150,20 +254,31 @@ export default function CompararFactura() {
               />
             </Box>
             <Box>
-              <Button variant="contained" onClick={onAgregarActualizar} fullWidth>
-                {editId ? 'Actualizar' : 'Agregar'}
+              <Button 
+                variant="contained" 
+                onClick={onAgregarActualizar} 
+                disabled={saving || !mesISO || !potenciaFacturadaKW}
+                fullWidth
+              >
+                {saving ? <CircularProgress size={24} /> : editId ? 'Actualizar' : 'Agregar'}
               </Button>
             </Box>
           </Box>
         </LocalizationProvider>
 
         <Box sx={{ mt: 2, color: 'text.secondary' }}>
-          <Typography variant="body2">
-            Potencia media medida del mes: {potenciaMediaMesKW != null ? `${potenciaMediaMesKW} kW` : 'Sin datos'}
-          </Typography>
-          <Typography variant="body2">
-            Diferencia: {potenciaMediaMesKW != null && potenciaFacturadaKW ? `${(parseFloat(potenciaFacturadaKW) - potenciaMediaMesKW).toFixed(3)} kW` : '-'}
-          </Typography>
+          {loadingPotencia ? (
+            <Typography variant="body2">Calculando potencia media...</Typography>
+          ) : (
+            <>
+              <Typography variant="body2">
+                Potencia media medida del mes: {potenciaMediaMesKW != null ? `${potenciaMediaMesKW} kW` : 'Sin datos'}
+              </Typography>
+              <Typography variant="body2">
+                Diferencia: {potenciaMediaMesKW != null && potenciaFacturadaKW ? `${(parseFloat(potenciaFacturadaKW) - potenciaMediaMesKW).toFixed(3)} kW` : '-'}
+              </Typography>
+            </>
+          )}
         </Box>
       </Paper>
 
@@ -180,20 +295,30 @@ export default function CompararFactura() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {registros.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center">
+                    <CircularProgress />
+                  </TableCell>
+                </TableRow>
+              ) : registros.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center">Aún no hay registros</TableCell>
                 </TableRow>
               ) : (
                 registros.map((r) => (
                   <TableRow key={r.id} hover>
-                    <TableCell>{r.mesISO}</TableCell>
-                    <TableCell>{r.potenciaFacturadaKW.toFixed(3)}</TableCell>
-                    <TableCell>{r.potenciaMediaMedidaKW != null ? r.potenciaMediaMedidaKW.toFixed(3) : '-'}</TableCell>
-                    <TableCell>{r.diferenciaKW != null ? r.diferenciaKW.toFixed(3) : '-'}</TableCell>
+                    <TableCell>{r.mes_iso}</TableCell>
+                    <TableCell>{r.potencia_facturada_kw.toFixed(3)}</TableCell>
+                    <TableCell>{r.potencia_media_medida_kw != null ? r.potencia_media_medida_kw.toFixed(3) : '-'}</TableCell>
+                    <TableCell>{r.diferencia_kw != null ? r.diferencia_kw.toFixed(3) : '-'}</TableCell>
                     <TableCell align="right">
-                      <Button size="small" variant="outlined" sx={{ mr: 1 }} onClick={() => onEditar(r.id)}>Editar</Button>
-                      <Button size="small" color="error" variant="outlined" onClick={() => onEliminar(r.id)}>Eliminar</Button>
+                      <IconButton size="small" onClick={() => onEditar(r.id)} color="primary">
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton size="small" onClick={() => onEliminar(r.id)} color="error">
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
                     </TableCell>
                   </TableRow>
                 ))

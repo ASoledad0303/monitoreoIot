@@ -15,7 +15,8 @@ import {
   Button,
   CircularProgress,
   Divider,
-  TextField
+  TextField,
+  Alert
 } from '@mui/material';
 import MainMenu from '@/components/MainMenu';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -28,59 +29,58 @@ import autoTable from 'jspdf-autotable';
 // Tipos para los datos
 interface ConsumoData {
   fecha: string;
-  voltaje: number;
-  corriente: number;
-  potencia: number;
-  energiaAcumulada: number;
+  voltaje: number | null;
+  corriente: number | null;
+  potencia: number | null;
+  energiaAcumulada: number | null;
 }
 
-// Datos mock para simular la respuesta del backend
-const mockData: ConsumoData[] = [
-  { fecha: '2023-06-01', voltaje: 220.5, corriente: 5.2, potencia: 1146.6, energiaAcumulada: 1.15 },
-  { fecha: '2023-06-02', voltaje: 219.8, corriente: 4.9, potencia: 1077.0, energiaAcumulada: 1.08 },
-  { fecha: '2023-06-03', voltaje: 221.2, corriente: 5.5, potencia: 1216.6, energiaAcumulada: 1.22 },
-  { fecha: '2023-06-04', voltaje: 220.1, corriente: 5.0, potencia: 1100.5, energiaAcumulada: 1.10 },
-  { fecha: '2023-06-05', voltaje: 219.5, corriente: 4.8, potencia: 1053.6, energiaAcumulada: 1.05 },
-  { fecha: '2023-06-06', voltaje: 220.8, corriente: 5.3, potencia: 1170.2, energiaAcumulada: 1.17 },
-  { fecha: '2023-06-07', voltaje: 221.0, corriente: 5.4, potencia: 1193.4, energiaAcumulada: 1.19 },
-];
-
 export default function ReporteConsumo() {
-  const [fechaDesde, setFechaDesde] = useState<Date | null>(new Date(2023, 5, 1)); // 1 de junio de 2023
-  const [fechaHasta, setFechaHasta] = useState<Date | null>(new Date(2023, 5, 7)); // 7 de junio de 2023
+  const [fechaDesde, setFechaDesde] = useState<Date | null>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [fechaHasta, setFechaHasta] = useState<Date | null>(new Date());
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ConsumoData[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // Función para obtener datos del backend (simulada con mocks)
+  // Función para obtener datos del backend
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // Simular llamada al backend
-      await new Promise(resolve => setTimeout(resolve, 800));
+      let url = '/api/telemetry';
+      const params = new URLSearchParams();
       
-      // En un caso real, aquí iría la llamada fetch al backend con las fechas formateadas
-      // const fechaDesdeStr = fechaDesde ? fechaDesde.toISOString().split('T')[0] : '';
-      // const fechaHastaStr = fechaHasta ? fechaHasta.toISOString().split('T')[0] : '';
-      // const response = await fetch(`/api/consumo?fechaDesde=${fechaDesdeStr}&fechaHasta=${fechaHastaStr}`);
-      // const data = await response.json();
-      
-      // Filtramos los datos mock según el rango de fechas seleccionado
-      if (fechaDesde && fechaHasta) {
-        const fechaDesdeStr = fechaDesde.toISOString().split('T')[0];
-        const fechaHastaStr = fechaHasta.toISOString().split('T')[0];
-        
-        const filteredData = mockData.filter(item => {
-          return item.fecha >= fechaDesdeStr && item.fecha <= fechaHastaStr;
-        });
-        
-        setData(filteredData);
-      } else {
-        setData(mockData);
+      if (fechaDesde) {
+        params.append('fechaDesde', fechaDesde.toISOString().split('T')[0]);
       }
-    } catch (error) {
+      if (fechaHasta) {
+        params.append('fechaHasta', fechaHasta.toISOString().split('T')[0]);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Error al obtener datos de consumo');
+      }
+      const result = await response.json();
+      
+      // Mapear datos de la API al formato esperado
+      const mappedData: ConsumoData[] = (result.data || []).map((item: any) => ({
+        fecha: item.fecha,
+        voltaje: item.voltaje ?? 0,
+        corriente: item.corriente ?? 0,
+        potencia: item.potencia ?? 0,
+        energiaAcumulada: item.energia_acumulada ?? 0,
+      }));
+      
+      setData(mappedData);
+    } catch (error: any) {
       console.error('Error al obtener datos:', error);
-      // En caso de error, seguimos usando los mocks
-      setData(mockData);
+      setError(error.message || 'Error al cargar datos');
+      setData([]);
     } finally {
       setLoading(false);
     }
@@ -100,11 +100,17 @@ export default function ReporteConsumo() {
   const calcularSumatorias = () => {
     if (data.length === 0) return { voltaje: 0, corriente: 0, potencia: 0, energiaAcumulada: 0 };
     
+    const validData = data.filter(item => 
+      item.voltaje !== null && item.corriente !== null && item.potencia !== null
+    );
+    
+    if (validData.length === 0) return { voltaje: 0, corriente: 0, potencia: 0, energiaAcumulada: 0 };
+    
     return {
-      voltaje: parseFloat((data.reduce((sum, item) => sum + item.voltaje, 0) / data.length).toFixed(2)),
-      corriente: parseFloat((data.reduce((sum, item) => sum + item.corriente, 0) / data.length).toFixed(2)),
-      potencia: parseFloat((data.reduce((sum, item) => sum + item.potencia, 0) / data.length).toFixed(2)),
-      energiaAcumulada: parseFloat(data.reduce((sum, item) => sum + item.energiaAcumulada, 0).toFixed(2))
+      voltaje: parseFloat((validData.reduce((sum, item) => sum + (item.voltaje || 0), 0) / validData.length).toFixed(2)),
+      corriente: parseFloat((validData.reduce((sum, item) => sum + (item.corriente || 0), 0) / validData.length).toFixed(2)),
+      potencia: parseFloat((validData.reduce((sum, item) => sum + (item.potencia || 0), 0) / validData.length).toFixed(2)),
+      energiaAcumulada: parseFloat(data.reduce((sum, item) => sum + (item.energiaAcumulada || 0), 0).toFixed(2))
     };
   };
 
@@ -139,10 +145,10 @@ export default function ReporteConsumo() {
     // Preparar datos para la tabla
     const tableData = data.map(row => [
       row.fecha,
-      row.voltaje.toFixed(2),
-      row.corriente.toFixed(2),
-      row.potencia.toFixed(2),
-      row.energiaAcumulada.toFixed(2)
+      (row.voltaje ?? 0).toFixed(2),
+      (row.corriente ?? 0).toFixed(2),
+      (row.potencia ?? 0).toFixed(2),
+      (row.energiaAcumulada ?? 0).toFixed(2)
     ]);
     
     // Agregar fila de totales
@@ -188,6 +194,12 @@ export default function ReporteConsumo() {
         </Typography>
       </Box>
       <Divider sx={{ mb: 3 }} />
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
       
       {/* Filtros */}
       <Paper sx={{ p: 2, mb: 3 }}>
@@ -275,10 +287,10 @@ export default function ReporteConsumo() {
                       <TableCell component="th" scope="row">
                         {row.fecha}
                       </TableCell>
-                      <TableCell align="right">{row.voltaje.toFixed(2)}</TableCell>
-                      <TableCell align="right">{row.corriente.toFixed(2)}</TableCell>
-                      <TableCell align="right">{row.potencia.toFixed(2)}</TableCell>
-                      <TableCell align="right">{row.energiaAcumulada.toFixed(2)}</TableCell>
+                      <TableCell align="right">{(row.voltaje ?? 0).toFixed(2)}</TableCell>
+                      <TableCell align="right">{(row.corriente ?? 0).toFixed(2)}</TableCell>
+                      <TableCell align="right">{(row.potencia ?? 0).toFixed(2)}</TableCell>
+                      <TableCell align="right">{(row.energiaAcumulada ?? 0).toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </>

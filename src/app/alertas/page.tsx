@@ -13,7 +13,8 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Alert
 } from '@mui/material';
 import MainMenu from '@/components/MainMenu';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -22,44 +23,49 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { es } from 'date-fns/locale';
 
 interface Alerta {
+  id?: number;
   fecha: string; // ISO date (YYYY-MM-DD)
   tipo: 'Alta tensión' | 'Baja tensión' | 'Alto consumo';
   mensaje: string;
-  valor?: string;
-  dispositivo?: string;
+  valor?: string | null;
+  dispositivo?: string | null;
 }
 
-const mockAlertas: Alerta[] = [
-  { fecha: '2023-06-01', tipo: 'Alta tensión', mensaje: 'Alerta de alta tensión', valor: '251 V', dispositivo: 'Medidor #1' },
-  { fecha: '2023-06-02', tipo: 'Baja tensión', mensaje: 'Alerta de baja tensión', valor: '190 V', dispositivo: 'Medidor #2' },
-  { fecha: '2023-06-03', tipo: 'Alto consumo', mensaje: 'Alerta de alto consumo de energía', valor: '2.30 kWh', dispositivo: 'Medidor #1' },
-  { fecha: '2023-06-04', tipo: 'Alta tensión', mensaje: 'Alerta de alta tensión', valor: '248 V', dispositivo: 'Medidor #3' },
-  { fecha: '2023-06-05', tipo: 'Baja tensión', mensaje: 'Alerta de baja tensión', valor: '185 V', dispositivo: 'Medidor #1' },
-  { fecha: '2023-06-06', tipo: 'Alto consumo', mensaje: 'Alerta de alto consumo de energía', valor: '1.95 kWh', dispositivo: 'Medidor #2' },
-  { fecha: '2023-06-07', tipo: 'Alta tensión', mensaje: 'Alerta de alta tensión', valor: '253 V', dispositivo: 'Medidor #3' }
-];
-
 export default function PanelAlertas() {
-  const [fechaDesde, setFechaDesde] = useState<Date | null>(new Date(2023, 5, 1));
-  const [fechaHasta, setFechaHasta] = useState<Date | null>(new Date(2023, 5, 7));
+  const [fechaDesde, setFechaDesde] = useState<Date | null>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [fechaHasta, setFechaHasta] = useState<Date | null>(new Date());
   const [loading, setLoading] = useState(false);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAlertas = async () => {
     setLoading(true);
+    setError(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      if (fechaDesde && fechaHasta) {
-        const desdeStr = fechaDesde.toISOString().split('T')[0];
-        const hastaStr = fechaHasta.toISOString().split('T')[0];
-        const filtradas = mockAlertas.filter((a) => a.fecha >= desdeStr && a.fecha <= hastaStr);
-        setAlertas(filtradas);
-      } else {
-        setAlertas(mockAlertas);
+      let url = '/api/alerts';
+      const params = new URLSearchParams();
+      
+      if (fechaDesde) {
+        params.append('fechaDesde', fechaDesde.toISOString().split('T')[0]);
       }
-    } catch (e) {
+      if (fechaHasta) {
+        params.append('fechaHasta', fechaHasta.toISOString().split('T')[0]);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
+      }
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Error al obtener alertas');
+      }
+      const data = await res.json();
+      setAlertas(data.alerts || []);
+    } catch (e: any) {
       console.error('Error obteniendo alertas:', e);
-      setAlertas(mockAlertas);
+      setError(e.message || 'Error al cargar alertas');
+      setAlertas([]);
     } finally {
       setLoading(false);
     }
@@ -82,6 +88,12 @@ export default function PanelAlertas() {
         <Typography variant="h4">Panel de alertas</Typography>
       </Box>
       <Divider sx={{ mb: 3 }} />
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -149,8 +161,8 @@ export default function PanelAlertas() {
                   </TableCell>
                 </TableRow>
               ) : (
-                alertas.map((a, idx) => (
-                  <TableRow key={idx} hover>
+                alertas.map((a) => (
+                  <TableRow key={a.id || a.fecha} hover>
                     <TableCell>{a.fecha}</TableCell>
                     <TableCell>{a.tipo}</TableCell>
                     <TableCell>{a.valor || '-'}</TableCell>

@@ -19,10 +19,12 @@ export async function POST(req: Request) {
     const { email, code } = parsed.data;
 
     // Buscar usuario
-    const u = await query<{ id: number; email: string; name: string }>(
-      "SELECT id, email, name FROM users WHERE email = $1",
-      [email]
-    );
+    const u = await query<{
+      id: number;
+      email: string;
+      name: string;
+      role: string;
+    }>("SELECT id, email, name, role FROM users WHERE email = $1", [email]);
     const user = u.rows[0];
     if (!user) {
       return NextResponse.json(
@@ -49,11 +51,12 @@ export async function POST(req: Request) {
     // Marcar código como usado
     await query("UPDATE user_tokens SET used = true WHERE id = $1", [t.id]);
 
-    // Crear token de sesión
+    // Crear token de sesión con role
     const token = signToken({
       sub: user.id,
       email: user.email,
       name: user.name,
+      role: user.role || "user", // Default a 'user' si no tiene role
     });
     const resp = NextResponse.json({ ok: true });
     resp.cookies.set("auth_token", token, {
@@ -70,4 +73,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Error de servidor" }, { status: 500 });
   }
 }
-
