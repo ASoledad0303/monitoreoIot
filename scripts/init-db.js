@@ -110,6 +110,34 @@ async function createTables() {
     );
   `);
 
+  // Tabla de companies (opcional, para multi-tenant)
+  const companyEnabled = process.env.COMPANY_ENABLED === 'true';
+  if (companyEnabled) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        code VARCHAR(50) UNIQUE,
+        email VARCHAR(160),
+        phone VARCHAR(50),
+        address TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    console.log('Tabla companies creada.');
+
+    // Agregar company_id a users si está habilitado
+    try {
+      await pool.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL;
+      `);
+    } catch (e) {
+      // Ignorar si ya existe
+    }
+  }
+
   // Tabla de umbrales (NULL user_id = umbrales globales)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS umbrales (
@@ -123,6 +151,18 @@ async function createTables() {
       UNIQUE(user_id) -- Un registro por usuario (o NULL para global)
     );
   `);
+  
+  // Agregar company_id a umbrales si está habilitado
+  if (companyEnabled) {
+    try {
+      await pool.query(`
+        ALTER TABLE umbrales 
+        ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE;
+      `);
+    } catch (e) {
+      // Ignorar si ya existe
+    }
+  }
 
   // Crear índices para mejor rendimiento
   console.log('Creando índices...');

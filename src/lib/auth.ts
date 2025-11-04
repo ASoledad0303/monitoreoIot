@@ -1,6 +1,8 @@
 import { verifyToken } from "./jwt";
+import { UserRole, ROLES } from "./config";
 
-export type UserRole = "user" | "admin";
+export type { UserRole };
+export { ROLES };
 
 export interface UserPayload {
   sub: number; // user id
@@ -22,14 +24,14 @@ export function hasRole(token: string | null | undefined, role: UserRole): boole
  * Verifica si el usuario tiene el rol de administrador
  */
 export function isAdmin(token: string | null | undefined): boolean {
-  return hasRole(token, "admin");
+  return hasRole(token, ROLES.ADMIN);
 }
 
 /**
  * Verifica si el usuario tiene el rol de usuario regular
  */
 export function isUser(token: string | null | undefined): boolean {
-  return hasRole(token, "user");
+  return hasRole(token, ROLES.USER);
 }
 
 /**

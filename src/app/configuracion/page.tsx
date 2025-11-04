@@ -5,7 +5,6 @@ import {
   Box,
   Typography,
   Paper,
-  Grid,
   Button,
   Divider,
   Dialog,
@@ -14,10 +13,6 @@ import {
   DialogActions,
   TextField,
   Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Chip,
   Switch,
   FormControlLabel,
@@ -26,7 +21,6 @@ import {
 import {
   Lock as LockIcon,
   Person as PersonIcon,
-  Policy as PolicyIcon,
   Settings as SettingsIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -142,7 +136,7 @@ export default function ConfiguracionPage() {
       setMessage({ type: 'success', text: 'Contraseña actualizada correctamente' });
       setPasswordForm({ current: '', new: '', confirm: '' });
       setModalPassword(false);
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: 'Error al actualizar la contraseña' });
     } finally {
       setLoading(false);
@@ -157,7 +151,7 @@ export default function ConfiguracionPage() {
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simular API
       setMessage({ type: 'success', text: 'Datos personales actualizados correctamente' });
       setModalPersonal(false);
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: 'Error al actualizar los datos personales' });
     } finally {
       setLoading(false);
@@ -408,7 +402,7 @@ export default function ConfiguracionPage() {
         <DialogTitle>Actualizar datos personales</DialogTitle>
         <DialogContent>
           <Typography variant="subtitle1" gutterBottom sx={{ mt: 1 }}>
-            Usuario: {mockUser.name}
+            Usuario: {user?.name || 'N/A'}
           </Typography>
           <TextField
             margin="dense"

@@ -20,7 +20,8 @@ import {
   Receipt as BillIcon,
   Menu as MenuIcon,
   Logout as LogoutIcon,
-  AdminPanelSettings as AdminIcon
+  AdminPanelSettings as AdminIcon,
+  Business as BusinessIcon
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 
@@ -69,10 +70,13 @@ export default function MainMenu() {
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion' }
   ];
 
-  // Agregar opción de administración solo para admins
-  const adminMenuItem = user?.role === 'admin' 
-    ? { text: 'Administración de usuarios', icon: <AdminIcon />, path: '/admin/usuarios' }
-    : null;
+  // Agregar opciones de administración solo para admins
+  const adminMenuItems = user?.role === 'admin' 
+    ? [
+        { text: 'Administración de usuarios', icon: <AdminIcon />, path: '/admin/usuarios' },
+        { text: 'Administración de companies', icon: <BusinessIcon />, path: '/admin/companies' }
+      ]
+    : [];
 
   return (
     <>
@@ -130,17 +134,18 @@ export default function MainMenu() {
                 <ListItemText primary={item.text} />
               </ListItem>
             ))}
-            {adminMenuItem && (
+            {adminMenuItems.map((item) => (
               <ListItem 
-                onClick={() => handleNavigation(adminMenuItem.path)}
+                key={item.text}
+                onClick={() => handleNavigation(item.path)}
                 sx={{ cursor: 'pointer' }}
               >
                 <ListItemIcon>
-                  {adminMenuItem.icon}
+                  {item.icon}
                 </ListItemIcon>
-                <ListItemText primary={adminMenuItem.text} />
+                <ListItemText primary={item.text} />
               </ListItem>
-            )}
+            ))}
           </List>
           <Divider />
           <List>

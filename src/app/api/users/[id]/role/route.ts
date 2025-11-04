@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
+import { ALL_ROLES } from "@/lib/config";
 
 const UpdateRoleSchema = z.object({
-  role: z.enum(["user", "admin"]),
+  role: z.enum(ALL_ROLES as [string, ...string[]]),
 });
 
 /**
