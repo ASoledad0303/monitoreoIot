@@ -8,24 +8,33 @@ Los roles están centralizados en `src/lib/config.ts` para facilitar su mantenim
 
 ### Roles Disponibles
 
-- **`user`**: Usuario regular del sistema
-- **`admin`**: Administrador con permisos completos
+- **`user`**: Usuario regular del sistema. Solo puede ver reportes y datos según los permisos asignados por el administrador.
+- **`admin`**: Administrador de company. Controla únicamente la company a la que está asignado. Puede crear dispositivos, gestionar usuarios de su company y ver reportes de su company. Al iniciar sesión por primera vez, si no tiene una company asignada, se crea automáticamente una.
+- **`super_admin`**: Super Administrador. Controla todas las companies del sistema. Puede crear, editar y eliminar companies, asignar roles de administrador, y ver todos los usuarios y dispositivos del sistema.
 
 ### Cómo Funciona el Sistema de Roles
 
 **Al crear una cuenta nueva:**
 - Por defecto, todas las cuentas nuevas se crean con rol `user`.
-- **EXCEPCIÓN**: Si no existe ningún administrador en el sistema, el primer usuario que se registre será automáticamente `admin`. Esto garantiza que siempre haya al menos un administrador.
+- **EXCEPCIÓN**: Si no existe ningún `super_admin` en el sistema, el primer usuario que se registre será automáticamente `super_admin`. Esto garantiza que siempre haya al menos un super administrador.
 
-**Para convertir un usuario en admin:**
-1. Usa el script proporcionado:
-   ```bash
-   npm run make-admin <email>
-   ```
-2. O desde la interfaz web (si ya eres admin):
+**Autocreación de Company para Admin:**
+- Cuando un usuario con rol `admin` inicia sesión por primera vez, si no tiene una company asignada, el sistema crea automáticamente una company para él.
+- La company se crea con el nombre "Company de [Nombre del Usuario]" y un código generado automáticamente basado en el nombre.
+
+**Para convertir un usuario en admin o super_admin:**
+1. Solo un `super_admin` puede asignar roles `admin` o `super_admin`.
+2. Un `admin` solo puede asignar rol `user` a otros usuarios.
+3. Desde la interfaz web (si eres super_admin):
    - Ve a `/admin/usuarios`
    - Haz clic en el ícono de editar junto al usuario
-   - Cambia el rol a "Administrador"
+   - Selecciona el rol: "Usuario", "Administrador" o "Super Administrador"
+
+**Migración de roles existentes:**
+Si ya tienes usuarios con rol `admin` y quieres convertir el primero a `super_admin`:
+```bash
+npm run migrate:roles
+```
 
 ### Ubicación de la Configuración
 
@@ -34,6 +43,7 @@ Los roles están centralizados en `src/lib/config.ts` para facilitar su mantenim
 export const ROLES = {
   USER: 'user',
   ADMIN: 'admin',
+  SUPER_ADMIN: 'super_admin',
 } as const;
 ```
 
@@ -41,16 +51,21 @@ export const ROLES = {
 
 ```typescript
 import { ROLES, UserRole } from '@/lib/config';
-import { hasRole, isAdmin } from '@/lib/auth';
+import { hasRole, isAdmin, isSuperAdmin } from '@/lib/auth';
 
-// Verificar rol
+// Verificar rol específico
 if (hasRole(token, ROLES.ADMIN)) {
-  // Usuario es admin
+  // Usuario es admin (no super_admin)
 }
 
-// Verificar si es admin
+// Verificar si es admin (incluye super_admin)
 if (isAdmin(token)) {
-  // Usuario es admin
+  // Usuario es admin o super_admin
+}
+
+// Verificar si es super_admin
+if (isSuperAdmin(token)) {
+  // Usuario es super_admin
 }
 ```
 

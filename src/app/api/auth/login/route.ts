@@ -35,7 +35,10 @@ export async function POST(req: Request) {
       email_verified: boolean;
       role: string;
     }>(
-      "SELECT id, email, password_hash, name, email_verified, role FROM users WHERE email = $1",
+      `SELECT u.id, u.email, u.password_hash, u.name, u.email_verified, r.name as role 
+       FROM users u 
+       INNER JOIN roles r ON u.role_id = r.id 
+       WHERE u.email = $1`,
       [email]
     );
 

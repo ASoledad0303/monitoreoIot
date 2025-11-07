@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { query } from '@/lib/db';
-import { ROLES } from '@/lib/config';
+import { getSuperAdminRoleId, getDefaultRoleId } from '@/lib/roles';
 
 const RegisterSchema = z.object({
   name: z.string().min(2).max(80),
@@ -25,28 +25,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email ya registrado' }, { status: 409 });
     }
 
-    // Verificar si existe algún administrador
-    const adminCheck = await query<{ count: string | number }>(
-      'SELECT COUNT(*)::int as count FROM users WHERE role = $1',
-      [ROLES.ADMIN]
-    );
-    const hasAdmin = Number(adminCheck.rows[0]?.count || 0) > 0;
+    // Verificar si existe algún super_admin
+    const superAdminRoleId = await getSuperAdminRoleId();
+    if (!superAdminRoleId) {
+      throw new Error("Rol super_admin no encontrado en la base de datos");
+    }
 
-    // Si no hay administradores, el primer usuario será admin
-    const role = hasAdmin ? ROLES.USER : ROLES.ADMIN;
+    const superAdminCheck = await query<{ count: string | number }>(
+      'SELECT COUNT(*)::int as count FROM users WHERE role_id = $1',
+      [superAdminRoleId]
+    );
+    const hasSuperAdmin = Number(superAdminCheck.rows[0]?.count || 0) > 0;
+
+    // Si no hay super_admin, el primer usuario será super_admin
+    const roleId = hasSuperAdmin ? await getDefaultRoleId() : superAdminRoleId;
 
     const hash = await bcrypt.hash(password, 10);
     await query(
-      `INSERT INTO users (name, email, password_hash, role, created_at)
+      `INSERT INTO users (name, email, password_hash, role_id, created_at)
        VALUES ($1, $2, $3, $4, NOW())`,
-      [name, email, hash, role]
+      [name, email, hash, roleId]
     );
 
     return NextResponse.json({ 
       ok: true, 
-      isAdmin: !hasAdmin,
-      message: !hasAdmin 
-        ? 'Cuenta creada como administrador (primer usuario del sistema)' 
+      isSuperAdmin: !hasSuperAdmin,
+      message: !hasSuperAdmin 
+        ? 'Cuenta creada como super administrador (primer usuario del sistema)' 
         : 'Cuenta creada exitosamente'
     });
   } catch (e) {

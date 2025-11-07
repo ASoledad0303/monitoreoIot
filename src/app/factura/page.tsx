@@ -17,7 +17,11 @@ import {
   TableRow,
   Alert,
   CircularProgress,
-  IconButton
+  IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import { Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material';
 import MainMenu from '@/components/MainMenu';
@@ -34,6 +38,27 @@ interface RegistroFactura {
   diferencia_kw: number | null;
 }
 
+interface Company {
+  id: number;
+  name: string;
+  code: string | null;
+}
+
+interface Device {
+  id: number;
+  name: string;
+  code: string;
+  company_id: number;
+}
+
+interface CurrentUser {
+  id: number;
+  email: string;
+  name: string;
+  role: "admin" | "user";
+  company_id?: number | null;
+}
+
 export default function CompararFactura() {
   const [mes, setMes] = useState<Date | null>(new Date());
   const [potenciaFacturadaKW, setPotenciaFacturadaKW] = useState<string>('');
@@ -44,6 +69,11 @@ export default function CompararFactura() {
   const [error, setError] = useState<string | null>(null);
   const [potenciaMediaMesKW, setPotenciaMediaMesKW] = useState<number | null>(null);
   const [loadingPotencia, setLoadingPotencia] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   const mesISO = useMemo(() => {
     if (!mes) return '';
@@ -52,10 +82,69 @@ export default function CompararFactura() {
     return `${year}-${month}`;
   }, [mes]);
 
-  // Cargar facturas al montar
+  // Cargar usuario y companies al iniciar
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const userRes = await fetch("/api/auth/me");
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setCurrentUser(userData);
+          
+          // Si es admin, cargar todas las companies
+          if (userData.role === "admin") {
+            const companiesRes = await fetch("/api/companies");
+            if (companiesRes.ok) {
+              const companiesData = await companiesRes.json();
+              setCompanies(companiesData.companies || []);
+            }
+          } else {
+            // Si es user, solo necesita su company (se filtrará automáticamente)
+            // Pero podemos cargar devices de su company
+            if (userData.company_id) {
+              setSelectedCompany(userData.company_id.toString());
+              const devicesRes = await fetch(`/api/devices?company_id=${userData.company_id}`);
+              if (devicesRes.ok) {
+                const devicesData = await devicesRes.json();
+                setDevices(devicesData.devices || []);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error cargando datos iniciales:", err);
+      }
+    }
+    loadInitialData();
+  }, []);
+
+  // Cargar facturas cuando cambian los filtros
   useEffect(() => {
     fetchFacturas();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCompany, selectedDevice]);
+
+  // Cargar devices cuando cambia la company seleccionada
+  useEffect(() => {
+    async function loadDevices() {
+      if (!selectedCompany) {
+        setDevices([]);
+        setSelectedDevice("");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/devices?company_id=${selectedCompany}`);
+        if (res.ok) {
+          const data = await res.json();
+          setDevices(data.devices || []);
+          setSelectedDevice(""); // Reset device selection
+        }
+      } catch (err) {
+        console.error("Error cargando devices:", err);
+      }
+    }
+    loadDevices();
+  }, [selectedCompany]);
 
   // Calcular potencia media del mes desde telemetry_history
   useEffect(() => {
@@ -64,13 +153,27 @@ export default function CompararFactura() {
       return;
     }
     fetchPotenciaMediaMes();
-  }, [mes]);
+  }, [mes, selectedCompany, selectedDevice]);
 
   const fetchFacturas = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/facturas');
+      let url = '/api/facturas';
+      const params = new URLSearchParams();
+      
+      if (selectedCompany) {
+        params.append('company_id', selectedCompany);
+      }
+      if (selectedDevice) {
+        params.append('device_id', selectedDevice);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
+      }
+      
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Error al obtener facturas');
       const data = await res.json();
       setRegistros(data.facturas || []);
@@ -92,7 +195,16 @@ export default function CompararFactura() {
       const fechaDesde = `${year}-${month}-01`;
       const fechaHasta = `${year}-${month}-${new Date(year, mes.getMonth() + 1, 0).getDate()}`;
 
-      const res = await fetch(`/api/telemetry?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`);
+      // Construir query con filtros
+      let url = `/api/telemetry?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`;
+      if (selectedCompany) {
+        url += `&company_id=${selectedCompany}`;
+      }
+      if (selectedDevice) {
+        url += `&device_id=${selectedDevice}`;
+      }
+
+      const res = await fetch(url);
       if (!res.ok) {
         setPotenciaMediaMesKW(null);
         return;
@@ -156,15 +268,25 @@ export default function CompararFactura() {
         }
       } else {
         // Crear nueva factura
+        const body: any = {
+          mes_iso: mesISO,
+          potencia_facturada_kw: valorNum,
+          potencia_media_medida_kw: potenciaMediaMesKW,
+          diferencia_kw: diferencia,
+        };
+        
+        // Agregar company_id y device_id si están seleccionados
+        if (selectedCompany) {
+          body.company_id = parseInt(selectedCompany);
+        }
+        if (selectedDevice) {
+          body.device_id = parseInt(selectedDevice);
+        }
+        
         const res = await fetch('/api/facturas', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mes_iso: mesISO,
-            potencia_facturada_kw: valorNum,
-            potencia_media_medida_kw: potenciaMediaMesKW,
-            diferencia_kw: diferencia,
-          }),
+          body: JSON.stringify(body),
         });
 
         if (!res.ok) {
@@ -174,6 +296,7 @@ export default function CompararFactura() {
       }
 
       await fetchFacturas();
+      fetchPotenciaMediaMes(); // Recalcular potencia media
       limpiarFormulario();
     } catch (e: any) {
       setError(e.message || 'Error al guardar factura');
@@ -230,7 +353,39 @@ export default function CompararFactura() {
           Ingresar datos de factura
         </Typography>
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2, alignItems: 'center', mb: 2 }}>
+            {currentUser?.role === "admin" && (
+              <FormControl fullWidth size="small">
+                <InputLabel>Company</InputLabel>
+                <Select
+                  value={selectedCompany}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                  label="Company"
+                >
+                  <MenuItem value="">Todas</MenuItem>
+                  {companies.map((company) => (
+                    <MenuItem key={company.id} value={company.id.toString()}>
+                      {company.name} {company.code && `(${company.code})`}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            <FormControl fullWidth size="small" disabled={!selectedCompany && currentUser?.role === "admin"}>
+              <InputLabel>Dispositivo</InputLabel>
+              <Select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                label="Dispositivo"
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {devices.map((device) => (
+                  <MenuItem key={device.id} value={device.id.toString()}>
+                    {device.name} ({device.code})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <Box>
               <DatePicker
                 label="Mes de facturación"

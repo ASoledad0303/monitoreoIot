@@ -21,7 +21,8 @@ import {
   Menu as MenuIcon,
   Logout as LogoutIcon,
   AdminPanelSettings as AdminIcon,
-  Business as BusinessIcon
+  Business as BusinessIcon,
+  Sensors as SensorsIcon
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 
@@ -29,7 +30,7 @@ interface User {
   id: number;
   email: string;
   name: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'super_admin';
 }
 
 export default function MainMenu() {
@@ -70,11 +71,15 @@ export default function MainMenu() {
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion' }
   ];
 
-  // Agregar opciones de administración solo para admins
-  const adminMenuItems = user?.role === 'admin' 
+  // Agregar opciones de administración para admins y super_admins
+  const adminMenuItems = (user?.role === 'admin' || user?.role === 'super_admin')
     ? [
         { text: 'Administración de usuarios', icon: <AdminIcon />, path: '/admin/usuarios' },
-        { text: 'Administración de companies', icon: <BusinessIcon />, path: '/admin/companies' }
+        ...(user?.role === 'super_admin' 
+          ? [{ text: 'Administración de companies', icon: <BusinessIcon />, path: '/admin/companies' }]
+          : []
+        ),
+        { text: 'Administración de dispositivos', icon: <SensorsIcon />, path: '/admin/dispositivos' }
       ]
     : [];
 

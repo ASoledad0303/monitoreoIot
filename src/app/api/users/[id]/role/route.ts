@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
-import { ALL_ROLES } from "@/lib/config";
+import { ALL_ROLES, ROLES } from "@/lib/config";
+import { getRoleId, getSuperAdminRoleId } from "@/lib/roles";
 
 const UpdateRoleSchema = z.object({
   role: z.enum(ALL_ROLES as [string, ...string[]]),
@@ -54,15 +55,77 @@ export async function PUT(
 
     // Verificar que no se está cambiando el rol del propio administrador
     const currentUser = getAuthUser(req);
-    if (currentUser?.sub === userId) {
+    if (!currentUser) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    if (currentUser.sub === userId) {
       return NextResponse.json(
         { error: "No puedes cambiar tu propio rol" },
         { status: 403 }
       );
     }
 
-    // Actualizar el rol
-    await query("UPDATE users SET role = $1 WHERE id = $2", [role, userId]);
+    // Solo super_admin puede asignar roles admin o super_admin
+    if ((role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN) && currentUser.role !== ROLES.SUPER_ADMIN) {
+      return NextResponse.json(
+        { error: "Solo super administradores pueden asignar roles de administrador" },
+        { status: 403 }
+      );
+    }
+
+    // Obtener el role_id del rol solicitado
+    const newRoleId = await getRoleId(role);
+    if (!newRoleId) {
+      return NextResponse.json(
+        { error: "Rol no encontrado" },
+        { status: 400 }
+      );
+    }
+
+    // Obtener el rol actual del usuario objetivo
+    const targetUserRole = await query<{ role: string }>(
+      `SELECT r.name as role 
+       FROM users u 
+       INNER JOIN roles r ON u.role_id = r.id 
+       WHERE u.id = $1`,
+      [userId]
+    );
+
+    if (targetUserRole.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Usuario no encontrado" },
+        { status: 404 }
+      );
+    }
+
+    // Si el usuario objetivo es super_admin y se está cambiando a otro rol,
+    // verificar que no sea el último super_admin
+    if (targetUserRole.rows[0]?.role === ROLES.SUPER_ADMIN && role !== ROLES.SUPER_ADMIN) {
+      const superAdminRoleId = await getSuperAdminRoleId();
+      if (!superAdminRoleId) {
+        return NextResponse.json(
+          { error: "Rol super_admin no encontrado" },
+          { status: 500 }
+        );
+      }
+
+      const superAdminCount = await query<{ count: string | number }>(
+        'SELECT COUNT(*)::int as count FROM users WHERE role_id = $1',
+        [superAdminRoleId]
+      );
+      const hasOtherSuperAdmins = Number(superAdminCount.rows[0]?.count || 0) > 1;
+
+      if (!hasOtherSuperAdmins) {
+        return NextResponse.json(
+          { error: "No se puede cambiar el rol del último super administrador. Debe haber al menos un super administrador en el sistema." },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Actualizar el role_id
+    await query("UPDATE users SET role_id = $1 WHERE id = $2", [newRoleId, userId]);
 
     return NextResponse.json({ ok: true, role });
   } catch (e) {
@@ -98,7 +161,10 @@ export async function GET(
     }
 
     const result = await query<{ role: string }>(
-      "SELECT role FROM users WHERE id = $1",
+      `SELECT r.name as role 
+       FROM users u 
+       INNER JOIN roles r ON u.role_id = r.id 
+       WHERE u.id = $1`,
       [userId]
     );
 

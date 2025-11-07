@@ -32,6 +32,32 @@ async function ensureDatabase() {
 
 async function createTables() {
   const pool = new Pool({ connectionString: dbUrl });
+  
+  // Crear tabla roles primero
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS roles (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(50) NOT NULL UNIQUE,
+      description TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Insertar roles por defecto si no existen
+  await pool.query(`
+    INSERT INTO roles (name, description)
+    VALUES 
+      ('user', 'Usuario regular del sistema'),
+      ('admin', 'Administrador de company'),
+      ('super_admin', 'Super Administrador del sistema')
+    ON CONFLICT (name) DO NOTHING;
+  `);
+
+  // Obtener el role_id por defecto (user)
+  const defaultRole = await pool.query('SELECT id FROM roles WHERE name = $1', ['user']);
+  const defaultRoleId = defaultRole.rows[0]?.id || 1;
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -39,16 +65,16 @@ async function createTables() {
       email VARCHAR(160) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       email_verified BOOLEAN NOT NULL DEFAULT false,
-      role VARCHAR(20) NOT NULL DEFAULT 'user',
+      role_id INTEGER NOT NULL DEFAULT $1 REFERENCES roles(id) ON DELETE SET NULL,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
-  `);
+  `, [defaultRoleId]);
 
-  // Agregar campo role si no existe (para bases de datos existentes)
+  // Agregar campo role_id si no existe (para bases de datos existentes)
   try {
     await pool.query(`
       ALTER TABLE users 
-      ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user';
+      ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
     `);
   } catch (e) {
     // Ignorar si ya existe
@@ -110,8 +136,53 @@ async function createTables() {
     );
   `);
 
+  // Agregar company_id y device_id a facturas si está habilitado
+  if (companyEnabled) {
+    try {
+      await pool.query(`
+        ALTER TABLE facturas 
+        ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+        ADD COLUMN IF NOT EXISTS device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL;
+      `);
+      
+      // Eliminar constraint UNIQUE antiguo si existe
+      try {
+        await pool.query(`
+          ALTER TABLE facturas 
+          DROP CONSTRAINT IF EXISTS facturas_user_id_mes_iso_key;
+        `);
+      } catch (e) {
+        // Ignorar
+      }
+      
+      // Crear nuevo índice único que incluya company_id y device_id
+      try {
+        await pool.query(`
+          CREATE UNIQUE INDEX IF NOT EXISTS facturas_user_mes_company_device_unique 
+          ON facturas(user_id, mes_iso, COALESCE(company_id, 0), COALESCE(device_id, 0));
+        `);
+      } catch (e) {
+        // Ignorar si ya existe
+      }
+      
+      // Crear índices para mejor rendimiento
+      try {
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_facturas_company_device 
+          ON facturas(company_id, device_id, mes_iso);
+        `);
+      } catch (e) {
+        // Ignorar
+      }
+      
+      console.log('Campos company_id y device_id agregados a facturas.');
+    } catch (e) {
+      // Ignorar si ya existe
+    }
+  }
+
   // Tabla de companies (opcional, para multi-tenant)
-  const companyEnabled = process.env.COMPANY_ENABLED === 'true';
+  // companyEnabled ya está definido arriba
   if (companyEnabled) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS companies (
@@ -152,17 +223,72 @@ async function createTables() {
     );
   `);
   
-  // Agregar company_id a umbrales si está habilitado
-  if (companyEnabled) {
-    try {
+    // Agregar company_id a umbrales si está habilitado
+    if (companyEnabled) {
+      try {
+        await pool.query(`
+          ALTER TABLE umbrales 
+          ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE;
+        `);
+      } catch (e) {
+        // Ignorar si ya existe
+      }
+
+      // Crear tabla de devices si está habilitado
       await pool.query(`
-        ALTER TABLE umbrales 
-        ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE;
+        CREATE TABLE IF NOT EXISTS devices (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          name VARCHAR(200) NOT NULL,
+          code VARCHAR(50) NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          UNIQUE(company_id, code)
+        );
       `);
-    } catch (e) {
-      // Ignorar si ya existe
+      console.log('Tabla devices creada.');
+
+      // Agregar company_id y device_id a telemetry_history si está habilitado
+      try {
+        await pool.query(`
+          ALTER TABLE telemetry_history 
+          ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+          ADD COLUMN IF NOT EXISTS device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL;
+        `);
+      } catch (e) {
+        // Ignorar si ya existe
+      }
+
+      // Agregar company_id y device_id a alerts si está habilitado
+      try {
+        await pool.query(`
+          ALTER TABLE alerts 
+          ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+          ADD COLUMN IF NOT EXISTS device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL;
+        `);
+      } catch (e) {
+        // Ignorar si ya existe
+      }
+
+      // Crear índices para devices y filtrado
+      try {
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_devices_company 
+          ON devices(company_id);
+        `);
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_telemetry_company_device 
+          ON telemetry_history(company_id, device_id, fecha);
+        `);
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_alerts_company_device 
+          ON alerts(company_id, device_id, fecha);
+        `);
+      } catch (e) {
+        // Ignorar si ya existe
+      }
     }
-  }
 
   // Crear índices para mejor rendimiento
   console.log('Creando índices...');

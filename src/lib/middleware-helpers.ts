@@ -47,9 +47,16 @@ export function requireRole(req: NextRequest, roles: UserRole | UserRole[]): Nex
 }
 
 /**
- * Middleware helper que verifica si el usuario es administrador
+ * Middleware helper que verifica si el usuario es administrador (admin o super_admin)
  */
 export function requireAdmin(req: NextRequest): NextResponse | null {
-  return requireRole(req, "admin");
+  return requireRole(req, ["admin", "super_admin"]);
+}
+
+/**
+ * Middleware helper que verifica si el usuario es super administrador
+ */
+export function requireSuperAdmin(req: NextRequest): NextResponse | null {
+  return requireRole(req, "super_admin");
 }
 

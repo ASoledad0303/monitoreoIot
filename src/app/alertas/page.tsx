@@ -14,7 +14,11 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Alert
+  Alert,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import MainMenu from '@/components/MainMenu';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -29,6 +33,29 @@ interface Alerta {
   mensaje: string;
   valor?: string | null;
   dispositivo?: string | null;
+  device_name?: string | null;
+  device_code?: string | null;
+}
+
+interface Company {
+  id: number;
+  name: string;
+  code: string | null;
+}
+
+interface Device {
+  id: number;
+  name: string;
+  code: string | null;
+  company_id: number;
+}
+
+interface CurrentUser {
+  id: number;
+  email: string;
+  name: string;
+  role: "admin" | "user";
+  company_id?: number | null;
 }
 
 export default function PanelAlertas() {
@@ -37,6 +64,68 @@ export default function PanelAlertas() {
   const [loading, setLoading] = useState(false);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+
+  // Cargar usuario y companies al iniciar
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const userRes = await fetch("/api/auth/me");
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setCurrentUser(userData);
+          
+          // Si es admin, cargar todas las companies
+          if (userData.role === "admin") {
+            const companiesRes = await fetch("/api/companies");
+            if (companiesRes.ok) {
+              const companiesData = await companiesRes.json();
+              setCompanies(companiesData.companies || []);
+            }
+          } else {
+            // Si es user, cargar devices de su company
+            if (userData.company_id) {
+              const devicesRes = await fetch(`/api/devices?company_id=${userData.company_id}`);
+              if (devicesRes.ok) {
+                const devicesData = await devicesRes.json();
+                setDevices(devicesData.devices || []);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error cargando datos iniciales:", err);
+      }
+    }
+    loadInitialData();
+  }, []);
+
+  // Cargar devices cuando cambia la company seleccionada
+  useEffect(() => {
+    async function loadDevices() {
+      if (!selectedCompany) {
+        setDevices([]);
+        setSelectedDevice("");
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/devices?company_id=${selectedCompany}`);
+        if (res.ok) {
+          const data = await res.json();
+          setDevices(data.devices || []);
+          setSelectedDevice(""); // Reset device selection
+        }
+      } catch (err) {
+        console.error("Error cargando devices:", err);
+      }
+    }
+    loadDevices();
+  }, [selectedCompany]);
 
   const fetchAlertas = async () => {
     setLoading(true);
@@ -50,6 +139,14 @@ export default function PanelAlertas() {
       }
       if (fechaHasta) {
         params.append('fechaHasta', fechaHasta.toISOString().split('T')[0]);
+      }
+      
+      // Agregar filtros de company y device
+      if (selectedCompany) {
+        params.append('company_id', selectedCompany);
+      }
+      if (selectedDevice) {
+        params.append('device_id', selectedDevice);
       }
       
       if (params.toString()) {
@@ -100,6 +197,48 @@ export default function PanelAlertas() {
           Filtros de búsqueda
         </Typography>
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, gap: 2, mb: 2 }}>
+            {/* Selector de Company (solo admin) */}
+            {currentUser?.role === "admin" && (
+              <FormControl fullWidth size="small">
+                <InputLabel>Company</InputLabel>
+                <Select
+                  value={selectedCompany}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                  label="Company"
+                >
+                  <MenuItem value="">Todas</MenuItem>
+                  {companies.map((company) => (
+                    <MenuItem key={company.id} value={company.id.toString()}>
+                      {company.name} {company.code && `(${company.code})`}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
+            {/* Selector de Device */}
+            <FormControl fullWidth size="small">
+              <InputLabel>Dispositivo</InputLabel>
+              <Select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                label="Dispositivo"
+                disabled={!selectedCompany && currentUser?.role === "admin"}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {devices.map((device) => (
+                  <MenuItem key={device.id} value={device.id.toString()}>
+                    {device.name} {device.code && `(${device.code})`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Placeholder para alinear */}
+            {currentUser?.role !== "admin" && <Box />}
+          </Box>
+
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, alignItems: 'center' }}>
             <Box>
               <DatePicker
@@ -145,18 +284,19 @@ export default function PanelAlertas() {
                 <TableCell>Valor</TableCell>
                 <TableCell>Mensaje de alarma</TableCell>
                 <TableCell>Dispositivo</TableCell>
+                {currentUser?.role === "admin" && <TableCell>Company</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
+                  <TableCell colSpan={currentUser?.role === "admin" ? 6 : 5} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : alertas.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
+                  <TableCell colSpan={currentUser?.role === "admin" ? 6 : 5} align="center">
                     No hay alertas en el periodo seleccionado
                   </TableCell>
                 </TableRow>
@@ -167,7 +307,14 @@ export default function PanelAlertas() {
                     <TableCell>{a.tipo}</TableCell>
                     <TableCell>{a.valor || '-'}</TableCell>
                     <TableCell>{a.mensaje}</TableCell>
-                    <TableCell>{a.dispositivo || '-'}</TableCell>
+                    <TableCell>
+                      {a.device_name 
+                        ? `${a.device_name}${a.device_code ? ` (${a.device_code})` : ''}`
+                        : a.dispositivo || '-'}
+                    </TableCell>
+                    {currentUser?.role === "admin" && (
+                      <TableCell>-</TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { query } from "@/lib/db";
 import { signToken } from "@/lib/jwt";
+import { COMPANY_CONFIG, ROLES } from "@/lib/config";
 
 const Schema = z.object({
   email: z.string().email(),
@@ -24,13 +25,70 @@ export async function POST(req: Request) {
       email: string;
       name: string;
       role: string;
-    }>("SELECT id, email, name, role FROM users WHERE email = $1", [email]);
+      company_id: number | null;
+    }>(
+      `SELECT u.id, u.email, u.name, r.name as role, u.company_id 
+       FROM users u 
+       INNER JOIN roles r ON u.role_id = r.id 
+       WHERE u.email = $1`, 
+      [email]
+    );
     const user = u.rows[0];
     if (!user) {
       return NextResponse.json(
         { error: "Usuario no encontrado" },
         { status: 404 }
       );
+    }
+
+    // Si es admin y no tiene company, crear una automáticamente
+    if (COMPANY_CONFIG.ENABLED && user.role === ROLES.ADMIN && !user.company_id) {
+      // Generar código automático basado en el nombre del usuario
+      const namePrefix = user.name
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .substring(0, 3)
+        .padEnd(3, "X");
+      
+      // Buscar último código con ese prefijo
+      const lastCodeResult = await query<{ code: string }>(
+        `SELECT code FROM companies 
+         WHERE code LIKE $1 
+         ORDER BY code DESC 
+         LIMIT 1`,
+        [`${namePrefix}%`]
+      );
+
+      let companyCode: string;
+      if (lastCodeResult.rows.length > 0) {
+        const lastCode = lastCodeResult.rows[0].code;
+        const match = lastCode.match(/^([A-Z0-9]+)(\d+)$/);
+        if (match && match[1] === namePrefix) {
+          const num = parseInt(match[2], 10) + 1;
+          companyCode = `${namePrefix}${num.toString().padStart(3, "0")}`;
+        } else {
+          companyCode = `${namePrefix}001`;
+        }
+      } else {
+        companyCode = `${namePrefix}001`;
+      }
+
+      // Crear company automáticamente
+      const companyResult = await query<{ id: number }>(
+        `INSERT INTO companies (name, code) 
+         VALUES ($1, $2) 
+         RETURNING id`,
+        [`Company de ${user.name}`, companyCode]
+      );
+
+      // Asignar company al usuario
+      await query(
+        "UPDATE users SET company_id = $1 WHERE id = $2",
+        [companyResult.rows[0].id, user.id]
+      );
+
+      // Actualizar user.company_id para el token
+      user.company_id = companyResult.rows[0].id;
     }
 
     // Buscar código 2FA válido

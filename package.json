@@ -10,7 +10,12 @@
     "init:db": "node scripts/init-db.js",
     "migrate:role": "node scripts/migrate-add-role.js",
     "migrate:company": "node scripts/migrate-add-company.js",
+    "migrate:devices": "node scripts/migrate-add-devices.js",
+    "migrate:facturas": "node scripts/migrate-add-facturas-company.js",
+    "migrate:roles": "node scripts/migrate-roles-to-super-admin.js",
+    "migrate:roles-table": "node scripts/migrate-to-roles-table.js",
     "make-admin": "node scripts/make-admin.js",
+    "make-super-admin": "node scripts/make-super-admin.js",
     "list-users": "node scripts/list-users.js"
   },
   "dependencies": {

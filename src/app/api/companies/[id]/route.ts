@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/middleware-helpers";
+import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
-import { COMPANY_CONFIG } from "@/lib/config";
+import { COMPANY_CONFIG, ROLES } from "@/lib/config";
 
 const UpdateCompanySchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -48,6 +48,11 @@ export async function PUT(
       return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
     }
 
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
     // Verificar que la company existe
     const companyCheck = await query<{ id: number }>(
       "SELECT id FROM companies WHERE id = $1",
@@ -59,6 +64,21 @@ export async function PUT(
         { error: "Company no encontrada" },
         { status: 404 }
       );
+    }
+
+    // Si es admin (no super_admin), solo puede actualizar su company
+    if (user.role === ROLES.ADMIN) {
+      const userCompany = await query<{ company_id: number | null }>(
+        "SELECT company_id FROM users WHERE id = $1",
+        [user.sub]
+      );
+      
+      if (userCompany.rows[0]?.company_id !== companyId) {
+        return NextResponse.json(
+          { error: "Solo puedes actualizar tu propia company" },
+          { status: 403 }
+        );
+      }
     }
 
     // Verificar que el código no esté duplicado si se proporciona
@@ -153,6 +173,19 @@ export async function DELETE(
       return NextResponse.json(
         { error: "ID de company inválido" },
         { status: 400 }
+      );
+    }
+
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    // Solo super_admin puede eliminar companies
+    if (user.role !== ROLES.SUPER_ADMIN) {
+      return NextResponse.json(
+        { error: "Solo super administradores pueden eliminar companies" },
+        { status: 403 }
       );
     }
 

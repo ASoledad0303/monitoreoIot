@@ -8,6 +8,7 @@
 export const ROLES = {
   USER: 'user',
   ADMIN: 'admin',
+  SUPER_ADMIN: 'super_admin',
 } as const;
 
 export type UserRole = typeof ROLES[keyof typeof ROLES];
@@ -16,13 +17,13 @@ export type UserRole = typeof ROLES[keyof typeof ROLES];
  * Valida si un string es un rol válido
  */
 export function isValidRole(role: string): role is UserRole {
-  return role === ROLES.USER || role === ROLES.ADMIN;
+  return role === ROLES.USER || role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
 }
 
 /**
  * Lista de todos los roles disponibles
  */
-export const ALL_ROLES: UserRole[] = [ROLES.USER, ROLES.ADMIN];
+export const ALL_ROLES: UserRole[] = [ROLES.USER, ROLES.ADMIN, ROLES.SUPER_ADMIN];
 
 /**
  * Configuración de company

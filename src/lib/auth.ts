@@ -21,9 +21,25 @@ export function hasRole(token: string | null | undefined, role: UserRole): boole
 }
 
 /**
- * Verifica si el usuario tiene el rol de administrador
+ * Verifica si el usuario tiene el rol de super administrador
+ */
+export function isSuperAdmin(token: string | null | undefined): boolean {
+  return hasRole(token, ROLES.SUPER_ADMIN);
+}
+
+/**
+ * Verifica si el usuario tiene el rol de administrador (incluye super_admin)
  */
 export function isAdmin(token: string | null | undefined): boolean {
+  if (!token) return false;
+  const payload = verifyToken<UserPayload>(token);
+  return payload?.role === ROLES.ADMIN || payload?.role === ROLES.SUPER_ADMIN;
+}
+
+/**
+ * Verifica si el usuario tiene el rol de administrador (solo admin, no super_admin)
+ */
+export function isAdminOnly(token: string | null | undefined): boolean {
   return hasRole(token, ROLES.ADMIN);
 }
 

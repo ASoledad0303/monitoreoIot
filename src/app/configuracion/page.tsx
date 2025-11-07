@@ -131,13 +131,25 @@ export default function ConfiguracionPage() {
 
     setLoading(true);
     try {
-      // Aquí iría la llamada al API
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simular API
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: passwordForm.current,
+          newPassword: passwordForm.new,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al actualizar la contraseña');
+      }
+
       setMessage({ type: 'success', text: 'Contraseña actualizada correctamente' });
       setPasswordForm({ current: '', new: '', confirm: '' });
       setModalPassword(false);
-    } catch {
-      setMessage({ type: 'error', text: 'Error al actualizar la contraseña' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Error al actualizar la contraseña' });
     } finally {
       setLoading(false);
     }
@@ -147,12 +159,41 @@ export default function ConfiguracionPage() {
   const handlePersonalSubmit = async () => {
     setLoading(true);
     try {
-      // Aquí iría la llamada al API
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simular API
+      const body: any = {};
+      if (personalForm.phone !== user?.phone) {
+        // Note: phone no está en la tabla users actualmente, solo name y email
+        // Por ahora solo actualizamos name y email
+      }
+      if (personalForm.email !== user?.email) {
+        body.email = personalForm.email;
+      }
+
+      const res = await fetch('/api/users/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al actualizar los datos personales');
+      }
+
+      // Recargar datos del usuario
+      const userRes = await fetch('/api/auth/me');
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        setUser(userData);
+        setPersonalForm({
+          phone: userData.phone || '',
+          email: userData.email,
+        });
+      }
+
       setMessage({ type: 'success', text: 'Datos personales actualizados correctamente' });
       setModalPersonal(false);
-    } catch {
-      setMessage({ type: 'error', text: 'Error al actualizar los datos personales' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Error al actualizar los datos personales' });
     } finally {
       setLoading(false);
     }

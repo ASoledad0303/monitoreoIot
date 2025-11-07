@@ -47,7 +47,7 @@ interface CurrentUser {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "super_admin";
 }
 
 export default function AdminCompaniesPage() {
@@ -86,9 +86,9 @@ export default function AdminCompaniesPage() {
         if (res.ok) {
           const data = await res.json();
           setCurrentUser(data);
-          // Verificar que es admin
-          if (data.role !== "admin") {
-            setError("No tienes permisos para acceder a esta página");
+          // Verificar que es super_admin (solo super_admin puede ver companies)
+          if (data.role !== "super_admin") {
+            setError("Solo super administradores pueden acceder a esta página");
             setLoading(false);
             return;
           }
@@ -175,10 +175,16 @@ export default function AdminCompaniesPage() {
         : `/api/companies/${editDialog.company?.id}`;
       const method = editDialog.isNew ? "POST" : "PUT";
 
+      // No enviar código vacío para nuevas companies (se generará automáticamente)
+      const bodyData: any = { ...formData };
+      if (editDialog.isNew && !bodyData.code?.trim()) {
+        bodyData.code = undefined;
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(bodyData),
       });
 
       if (!res.ok) {
@@ -420,7 +426,9 @@ export default function AdminCompaniesPage() {
               onChange={(e) =>
                 setFormData({ ...formData, code: e.target.value })
               }
-              helperText="Código único para identificar la company"
+              helperText={editDialog.isNew 
+                ? "Opcional: Si no se proporciona, se generará automáticamente basado en el nombre"
+                : "Código único para identificar la company"}
             />
             <TextField
               label="Email"
