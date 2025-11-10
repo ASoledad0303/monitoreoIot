@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/api/auth/verify-email",
   "/api/auth/verify-2fa",
   "/api/auth/me", // Permitir acceso a /me para verificar autenticación
+  "/api/iot/telemetry", // Endpoint público para dispositivos IoT (ESP32)
   // Las rutas /api/users/* requieren autenticación y se validan dentro de cada handler
 ];
 

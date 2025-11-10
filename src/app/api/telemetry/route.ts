@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
       params.push(fechaHasta);
     }
 
-    sql += ` ORDER BY th.fecha ASC`;
+    sql += ` ORDER BY th.created_at DESC, th.fecha DESC`;
 
     const result = await query<{
       id: number;

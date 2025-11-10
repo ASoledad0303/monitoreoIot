@@ -242,12 +242,18 @@ async function createTables() {
           name VARCHAR(200) NOT NULL,
           code VARCHAR(50) NOT NULL,
           description TEXT,
+          api_key VARCHAR(64) UNIQUE,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
           UNIQUE(company_id, code)
         );
       `);
       console.log('Tabla devices creada.');
+
+      // Crear índice para búsquedas rápidas por API key
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices(api_key);
+      `);
 
       // Agregar company_id y device_id a telemetry_history si está habilitado
       try {

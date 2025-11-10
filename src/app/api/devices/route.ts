@@ -58,8 +58,10 @@ export async function GET(req: NextRequest) {
             { status: 400 }
           );
         }
-        sql += ` WHERE d.company_id = $1`;
+        sql += ` WHERE d.company_id = $1 AND d.is_active = true`;
         params.push(companyId);
+      } else {
+        sql += ` WHERE d.is_active = true`;
       }
 
       sql += ` ORDER BY d.company_id, d.name ASC`;
@@ -86,7 +88,7 @@ export async function GET(req: NextRequest) {
                 c.name as company_name
          FROM devices d
          LEFT JOIN companies c ON d.company_id = c.id
-         WHERE d.company_id = $1
+         WHERE d.company_id = $1 AND d.is_active = true
          ORDER BY d.name ASC`,
         [userCompany.rows[0].company_id]
       );
@@ -112,7 +114,7 @@ export async function GET(req: NextRequest) {
                 c.name as company_name
          FROM devices d
          LEFT JOIN companies c ON d.company_id = c.id
-         WHERE d.company_id = $1
+         WHERE d.company_id = $1 AND d.is_active = true
          ORDER BY d.name ASC`,
         [userCompany.rows[0].company_id]
       );
