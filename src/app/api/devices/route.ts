@@ -3,6 +3,7 @@ import { requireAuth, getAuthUser, requireAdmin } from "@/lib/middleware-helpers
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const DeviceSchema = z.object({
   company_id: z.number().int().positive(),
@@ -179,6 +180,15 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    // Obtener usuario actual para auditoría
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     const result = await query<{ id: number }>(
       `INSERT INTO devices (company_id, name, code, description, location, is_active)

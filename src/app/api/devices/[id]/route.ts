@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/middleware-helpers";
+import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const UpdateDeviceSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -113,6 +114,15 @@ export async function PUT(
     updates.push(`updated_at = NOW()`);
     values.push(deviceId);
 
+    // Obtener usuario actual para auditoría
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
+
     await query(
       `UPDATE devices SET ${updates.join(", ")} WHERE id = $${paramIndex}`,
       values
@@ -173,6 +183,15 @@ export async function DELETE(
         { status: 404 }
       );
     }
+
+    // Obtener usuario actual para auditoría
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     // Eliminar el dispositivo (los datos históricos se mantienen con device_id NULL)
     await query("DELETE FROM devices WHERE id = $1", [deviceId]);

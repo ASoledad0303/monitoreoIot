@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { z } from "zod";
 import { ALL_ROLES, ROLES } from "@/lib/config";
 import { getRoleId, getSuperAdminRoleId } from "@/lib/roles";
+import { setupAuditContext } from "@/lib/audit";
 
 const UpdateRoleSchema = z.object({
   role: z.enum(ALL_ROLES as [string, ...string[]]),
@@ -123,6 +124,9 @@ export async function PUT(
         );
       }
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, currentUser.sub);
 
     // Actualizar el role_id
     await query("UPDATE users SET role_id = $1 WHERE id = $2", [newRoleId, userId]);

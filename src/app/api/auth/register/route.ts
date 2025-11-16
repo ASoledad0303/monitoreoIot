@@ -3,6 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { query } from '@/lib/db';
 import { getSuperAdminRoleId, getDefaultRoleId } from '@/lib/roles';
+import { setAuditUser } from '@/lib/audit';
 
 const RegisterSchema = z.object({
   name: z.string().min(2).max(80),
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
 
     // Si no hay super_admin, el primer usuario será super_admin
     const roleId = hasSuperAdmin ? await getDefaultRoleId() : superAdminRoleId;
+
+    // Para registro, no hay usuario autenticado, así que no establecemos user_id
+    // El trigger registrará changed_by como NULL (sistema)
+    await setAuditUser(null); // NULL indicará que es creación del sistema
 
     const hash = await bcrypt.hash(password, 10);
     await query(

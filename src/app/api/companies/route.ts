@@ -3,6 +3,7 @@ import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG, ROLES } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const CompanySchema = z.object({
   name: z.string().min(1).max(200),
@@ -159,6 +160,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     const result = await query<{ id: number }>(
       `INSERT INTO companies (name, code, email, phone, address)

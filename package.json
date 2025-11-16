@@ -18,6 +18,7 @@
     "migrate:roles-table": "node scripts/migrate-to-roles-table.js",
     "migrate:device-api-key": "node scripts/migrate-add-device-api-key.js",
     "migrate:remove-telemetry-unique": "node scripts/migrate-remove-telemetry-unique.js",
+    "migrate:audit": "node scripts/migrate-add-audit-system.js",
     "show-device-keys": "node scripts/show-device-api-keys.js",
     "check-telemetry": "node scripts/check-telemetry-data.js",
     "mqtt-bridge": "node services/mqtt-bridge.js",

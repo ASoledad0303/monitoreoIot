@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, getAuthUser, requireAdmin } from "@/lib/middleware-helpers";
+import { requireAuth, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const UpdateUmbralesSchema = z.object({
   voltaje_min: z.number().min(0).optional(),
@@ -147,6 +148,9 @@ export async function POST(req: NextRequest) {
       whereClause = "user_id = $1";
       whereParams = [user.sub];
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     // Verificar si ya existe
     const existing = await query<{ id: number }>(
@@ -297,6 +301,9 @@ export async function PUT(req: NextRequest) {
       insertValues = userId === null ? "NULL" : "$1";
       insertParams = userId === null ? [] : [userId];
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     // Verificar si ya existe
     const existing = await query<{ id: number }>(

@@ -3,6 +3,7 @@ import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const UpdateCompanySchema = z.object({
   company_id: z.number().nullable(),
@@ -117,6 +118,9 @@ export async function PUT(
         );
       }
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, currentUser.sub);
 
     // Actualizar el company_id
     await query("UPDATE users SET company_id = $1 WHERE id = $2", [

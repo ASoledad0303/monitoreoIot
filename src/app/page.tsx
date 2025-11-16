@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
+  LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip,
 } from 'recharts';
 import MainMenu from '@/components/MainMenu';
-import { Box, Paper, Typography, FormControl, InputLabel, Select, MenuItem, Grid } from '@mui/material';
+import { Box, Paper, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -49,21 +49,20 @@ const endsWith = (t: string, suffix: string) => typeof t === 'string' && t.endsW
 export default function Page() {
   const [selectedCompany, setSelectedCompany] = useState<string>("");
   const [selectedDevice, setSelectedDevice] = useState<string>("");
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [, setCompanies] = useState<Company[]>([]);
+  const [, setDevices] = useState<Device[]>([]);
+  const [, setCurrentUser] = useState<CurrentUser | null>(null);
   const [dbLatest, setDbLatest] = useState<{ voltaje?: number; corriente?: number; potencia?: number; created_at?: string } | null>(null);
   const [historicalData, setHistoricalData] = useState<Point[]>([]);
   const [timeRange, setTimeRange] = useState<'24h' | 'week' | 'month' | 'custom'>('24h');
   const [customDateFrom, setCustomDateFrom] = useState<Date | null>(null);
   const [customDateTo, setCustomDateTo] = useState<Date | null>(null);
-  const { status, latest, series } = useRealtimeTelemetry(WS_URL, selectedDevice ? parseInt(selectedDevice) : undefined);
+  const { status, latest } = useRealtimeTelemetry(WS_URL, selectedDevice ? parseInt(selectedDevice) : undefined);
 
   // Usar datos de la base de datos si están disponibles, sino usar WebSocket
   // Convertir valores de la BD a números (pueden venir como strings o Decimal)
   const voltaje = dbLatest?.voltaje != null ? parseFloat(String(dbLatest.voltaje)) : null;
   const corriente = dbLatest?.corriente != null ? parseFloat(String(dbLatest.corriente)) : null;
-  const potencia = dbLatest?.potencia != null ? parseFloat(String(dbLatest.potencia)) : null;
   
   const lastVrms = voltaje != null ? voltaje.toFixed(2) : (latest?.vrms != null ? latest.vrms.toFixed(2) : '--');
   const lastIrms = corriente != null ? corriente.toFixed(3) : (latest?.irms != null ? latest.irms.toFixed(3) : '--');
@@ -85,7 +84,7 @@ export default function Page() {
   async function safeJsonParse(res: Response) {
     // Verificar si la respuesta es una redirección (3xx) o error del servidor
     if (res.status >= 300 && res.status < 400) {
-      const text = await res.text();
+      await res.text(); // Consumir la respuesta
       throw new Error(`Redirección detectada (${res.status}). La respuesta puede ser HTML.`);
     }
     
@@ -466,9 +465,9 @@ export default function Page() {
         {/* Gráficos separados */}
         {selectedDevice && (
           <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-            <Grid container spacing={3} sx={{ alignItems: 'stretch' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 3, alignItems: 'stretch' }}>
               {/* Gráfico de Voltaje (Vrms) */}
-              <Grid item xs={12} md={4}>
+              <Box>
                 <Paper sx={{ borderRadius: 3, p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600, fontSize: { xs: '1.1rem', sm: '1.2rem', md: '1.3rem' } }}>
                     Voltaje RMS (Vrms)
@@ -477,7 +476,7 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          let chartData = historicalData.map(p => ({ ts: p.ts, value: p.Vrms })).filter(p => p.value != null);
+                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.Vrms })).filter(p => p.value != null);
                           chartData.sort((a, b) => a.ts - b.ts);
                           return chartData;
                         })()}
@@ -520,10 +519,10 @@ export default function Page() {
                     </ResponsiveContainer>
                   </Box>
                 </Paper>
-              </Grid>
+              </Box>
 
               {/* Gráfico de Corriente (Irms) */}
-              <Grid item xs={12} md={4}>
+              <Box>
                 <Paper sx={{ borderRadius: 3, p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600, fontSize: { xs: '1.1rem', sm: '1.2rem', md: '1.3rem' } }}>
                     Corriente RMS (Irms)
@@ -532,7 +531,7 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          let chartData = historicalData.map(p => ({ ts: p.ts, value: p.Irms })).filter(p => p.value != null);
+                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.Irms })).filter(p => p.value != null);
                           chartData.sort((a, b) => a.ts - b.ts);
                           return chartData;
                         })()}
@@ -575,10 +574,10 @@ export default function Page() {
                     </ResponsiveContainer>
                   </Box>
                 </Paper>
-              </Grid>
+              </Box>
 
               {/* Gráfico de Potencia Aparente (S) */}
-              <Grid item xs={12} md={4}>
+              <Box>
                 <Paper sx={{ borderRadius: 3, p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600, fontSize: { xs: '1.1rem', sm: '1.2rem', md: '1.3rem' } }}>
                     Potencia Aparente (S)
@@ -587,7 +586,7 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          let chartData = historicalData.map(p => ({ ts: p.ts, value: p.S })).filter(p => p.value != null);
+                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.S })).filter(p => p.value != null);
                           chartData.sort((a, b) => a.ts - b.ts);
                           return chartData;
                         })()}
@@ -630,8 +629,8 @@ export default function Page() {
                     </ResponsiveContainer>
                   </Box>
                 </Paper>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
           </LocalizationProvider>
         )}
 

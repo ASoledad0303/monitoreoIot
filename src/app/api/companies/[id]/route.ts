@@ -3,6 +3,7 @@ import { requireAdmin, getAuthUser } from "@/lib/middleware-helpers";
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { COMPANY_CONFIG, ROLES } from "@/lib/config";
+import { setupAuditContext } from "@/lib/audit";
 
 const UpdateCompanySchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -128,6 +129,9 @@ export async function PUT(
     updates.push(`updated_at = NOW()`);
     values.push(companyId);
 
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
+
     await query(
       `UPDATE companies SET ${updates.join(", ")} WHERE id = $${paramIndex}`,
       values
@@ -201,6 +205,9 @@ export async function DELETE(
         { status: 404 }
       );
     }
+
+    // Establecer contexto de auditoría
+    await setupAuditContext(req, user.sub);
 
     // Eliminar la company (los users.company_id se pondrán en NULL por ON DELETE SET NULL)
     await query("DELETE FROM companies WHERE id = $1", [companyId]);
