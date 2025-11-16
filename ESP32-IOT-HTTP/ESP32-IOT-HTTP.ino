@@ -191,6 +191,7 @@ void defaultsCal() {
 void printHelp() {
   Serial.println(F("\n=== COMANDOS ==="));
   Serial.println(F("help"));
+  Serial.println(F("wifi           -> verificar estado de WiFi"));
   Serial.println(F("stage X        -> 0(RAW),1(VOLT),2(CURR),3(PHASE),4(RUN)"));
   Serial.println(F("vgain <v>      -> set V_CAL_GAIN"));
   Serial.println(F("igain <v>      -> set I_CAL_GAIN"));
@@ -199,6 +200,48 @@ void printHelp() {
   Serial.println(F("apikey <key>   -> configurar API key del dispositivo"));
   Serial.println(F("save | load | defaults"));
   Serial.println(F("=================\n"));
+}
+
+void printWifiStatus() {
+  Serial.println(F("\n=== ESTADO WiFi ==="));
+  Serial.printf("SSID configurado: %s\n", WIFI_SSID);
+  
+  wl_status_t status = WiFi.status();
+  Serial.printf("Estado: ");
+  
+  switch(status) {
+    case WL_IDLE_STATUS:
+      Serial.println(F("IDLE (inactivo)"));
+      break;
+    case WL_NO_SSID_AVAIL:
+      Serial.println(F("NO_SSID_AVAIL (red no encontrada)"));
+      break;
+    case WL_SCAN_COMPLETED:
+      Serial.println(F("SCAN_COMPLETED (escaneo completado)"));
+      break;
+    case WL_CONNECTED:
+      Serial.println(F("CONNECTED (conectado)"));
+      Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+      Serial.printf("Máscara de subred: %s\n", WiFi.subnetMask().toString().c_str());
+      Serial.printf("Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
+      Serial.printf("DNS: %s\n", WiFi.dnsIP().toString().c_str());
+      Serial.printf("RSSI (señal): %d dBm\n", WiFi.RSSI());
+      Serial.printf("MAC: %s\n", WiFi.macAddress().c_str());
+      break;
+    case WL_CONNECT_FAILED:
+      Serial.println(F("CONNECT_FAILED (fallo de conexión)"));
+      break;
+    case WL_CONNECTION_LOST:
+      Serial.println(F("CONNECTION_LOST (conexión perdida)"));
+      break;
+    case WL_DISCONNECTED:
+      Serial.println(F("DISCONNECTED (desconectado)"));
+      break;
+    default:
+      Serial.printf("DESCONOCIDO (%d)\n", status);
+      break;
+  }
+  Serial.println(F("==================\n"));
 }
 
 // -------------- Wi-Fi / HTTP --------------
@@ -295,6 +338,7 @@ void loop() {
       rx.trim();
       if (rx.length()) {
         if (rx.equalsIgnoreCase("help")) printHelp();
+        else if (rx.equalsIgnoreCase("wifi")) printWifiStatus();
         else if (rx.startsWith("stage")) {
           int s = rx.substring(5).toInt();
           if (s>=0 && s<=4) { stage=(Stage)s; Serial.printf("[OK] Stage=%d\n", s); lcdPrintLine(1, String("Stage=")+String(s)); }

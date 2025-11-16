@@ -11,10 +11,20 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { es } from 'date-fns/locale';
-type TelemetryMsg = { vrms?: number; irms?: number; s_apparent_va?: number; ts?: number; device_id?: number };
+type TelemetryMsg = { 
+  vrms?: number; 
+  irms?: number; 
+  s_apparent_va?: number; 
+  potencia_activa?: number;
+  factor_potencia?: number;
+  ts?: number; 
+  device?: string;
+  device_id?: number;
+};
 type WsEnvelope =
   | { topic: 'snapshot'; data: { metrics?: TelemetryMsg; telemetry?: TelemetryMsg } }
   | { topic: 'telemetry'; data: TelemetryMsg }
+  | { topic: 'tesis/iot/esp32/telemetry'; data: TelemetryMsg }
   | { topic: string; data: any };
 
 type Point = { ts: number; Vrms?: number; Irms?: number; S?: number; device_id?: number };
@@ -57,19 +67,26 @@ export default function Page() {
   const [timeRange, setTimeRange] = useState<'24h' | 'week' | 'month' | 'custom'>('24h');
   const [customDateFrom, setCustomDateFrom] = useState<Date | null>(null);
   const [customDateTo, setCustomDateTo] = useState<Date | null>(null);
-  const { status, latest } = useRealtimeTelemetry(WS_URL, selectedDevice ? parseInt(selectedDevice) : undefined);
+  const { status, latest, series: realtimeSeries } = useRealtimeTelemetry(WS_URL, selectedDevice ? parseInt(selectedDevice) : undefined);
 
-  // Usar datos de la base de datos si están disponibles, sino usar WebSocket
+  // Priorizar datos del WebSocket (tiempo real), usar BD como fallback
   // Convertir valores de la BD a números (pueden venir como strings o Decimal)
-  const voltaje = dbLatest?.voltaje != null ? parseFloat(String(dbLatest.voltaje)) : null;
-  const corriente = dbLatest?.corriente != null ? parseFloat(String(dbLatest.corriente)) : null;
+  const voltajeDb = dbLatest?.voltaje != null ? parseFloat(String(dbLatest.voltaje)) : null;
+  const corrienteDb = dbLatest?.corriente != null ? parseFloat(String(dbLatest.corriente)) : null;
   
-  const lastVrms = voltaje != null ? voltaje.toFixed(2) : (latest?.vrms != null ? latest.vrms.toFixed(2) : '--');
-  const lastIrms = corriente != null ? corriente.toFixed(3) : (latest?.irms != null ? latest.irms.toFixed(3) : '--');
-  // S (potencia aparente) = V * I
-  const lastS = voltaje != null && corriente != null 
-    ? (voltaje * corriente).toFixed(2) 
-    : (latest?.s_apparent_va != null ? latest.s_apparent_va.toFixed(2) : '--');
+  // Priorizar WebSocket sobre BD
+  const voltaje = latest?.vrms != null ? latest.vrms : voltajeDb;
+  const corriente = latest?.irms != null ? latest.irms : corrienteDb;
+  
+  const lastVrms = voltaje != null ? voltaje.toFixed(2) : '--';
+  const lastIrms = corriente != null ? corriente.toFixed(3) : '--';
+  
+  // S (potencia aparente): usar valor del WebSocket si está disponible, sino calcular V * I
+  const lastS = latest?.s_apparent_va != null 
+    ? latest.s_apparent_va.toFixed(2)
+    : (voltaje != null && corriente != null 
+      ? (voltaje * corriente).toFixed(2) 
+      : '--');
 
   const statusColor = useMemo(() => {
     switch (status) {
@@ -453,9 +470,13 @@ export default function Page() {
                 </LocalizationProvider>
               )}
               
-              {selectedDevice && dbLatest && (
+              {selectedDevice && (
                 <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                  Última actualización: {new Date(dbLatest.created_at || Date.now()).toLocaleTimeString()}
+                  Última actualización: {latest?.ts 
+                    ? new Date(latest.ts).toLocaleTimeString() 
+                    : (dbLatest?.created_at 
+                      ? new Date(dbLatest.created_at).toLocaleTimeString() 
+                      : new Date().toLocaleTimeString())}
                 </Typography>
               )}
             </Box>
@@ -476,9 +497,28 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.Vrms })).filter(p => p.value != null);
+                          // Combinar datos históricos (BD) con datos en tiempo real (WebSocket)
+                          const historicalPoints = historicalData
+                            .map(p => ({ ts: p.ts, value: p.Vrms }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const realtimePoints = realtimeSeries
+                            .map(p => ({ ts: p.ts, value: p.Vrms }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const chartData = [...historicalPoints, ...realtimePoints];
                           chartData.sort((a, b) => a.ts - b.ts);
-                          return chartData;
+                          // Eliminar duplicados por timestamp (priorizar datos en tiempo real)
+                          const uniqueData = chartData.reduce((acc, curr) => {
+                            const existing = acc.find(item => item.ts === curr.ts);
+                            if (!existing) {
+                              acc.push(curr);
+                            } else if (realtimePoints.some(p => p.ts === curr.ts)) {
+                              // Si es un punto en tiempo real, reemplazar el histórico
+                              const index = acc.indexOf(existing);
+                              acc[index] = curr;
+                            }
+                            return acc;
+                          }, [] as { ts: number; value: number }[]);
+                          return uniqueData;
                         })()}
                         margin={{ top: 25, right: 35, left: 30, bottom: 70 }}
                       >
@@ -531,9 +571,28 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.Irms })).filter(p => p.value != null);
+                          // Combinar datos históricos (BD) con datos en tiempo real (WebSocket)
+                          const historicalPoints = historicalData
+                            .map(p => ({ ts: p.ts, value: p.Irms }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const realtimePoints = realtimeSeries
+                            .map(p => ({ ts: p.ts, value: p.Irms }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const chartData = [...historicalPoints, ...realtimePoints];
                           chartData.sort((a, b) => a.ts - b.ts);
-                          return chartData;
+                          // Eliminar duplicados por timestamp (priorizar datos en tiempo real)
+                          const uniqueData = chartData.reduce((acc, curr) => {
+                            const existing = acc.find(item => item.ts === curr.ts);
+                            if (!existing) {
+                              acc.push(curr);
+                            } else if (realtimePoints.some(p => p.ts === curr.ts)) {
+                              // Si es un punto en tiempo real, reemplazar el histórico
+                              const index = acc.indexOf(existing);
+                              acc[index] = curr;
+                            }
+                            return acc;
+                          }, [] as { ts: number; value: number }[]);
+                          return uniqueData;
                         })()}
                         margin={{ top: 25, right: 35, left: 30, bottom: 70 }}
                       >
@@ -586,9 +645,28 @@ export default function Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart 
                         data={(() => {
-                          const chartData = historicalData.map(p => ({ ts: p.ts, value: p.S })).filter(p => p.value != null);
+                          // Combinar datos históricos (BD) con datos en tiempo real (WebSocket)
+                          const historicalPoints = historicalData
+                            .map(p => ({ ts: p.ts, value: p.S }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const realtimePoints = realtimeSeries
+                            .map(p => ({ ts: p.ts, value: p.S }))
+                            .filter((p): p is { ts: number; value: number } => p.value != null);
+                          const chartData = [...historicalPoints, ...realtimePoints];
                           chartData.sort((a, b) => a.ts - b.ts);
-                          return chartData;
+                          // Eliminar duplicados por timestamp (priorizar datos en tiempo real)
+                          const uniqueData = chartData.reduce((acc, curr) => {
+                            const existing = acc.find(item => item.ts === curr.ts);
+                            if (!existing) {
+                              acc.push(curr);
+                            } else if (realtimePoints.some(p => p.ts === curr.ts)) {
+                              // Si es un punto en tiempo real, reemplazar el histórico
+                              const index = acc.indexOf(existing);
+                              acc[index] = curr;
+                            }
+                            return acc;
+                          }, [] as { ts: number; value: number }[]);
+                          return uniqueData;
                         })()}
                         margin={{ top: 25, right: 35, left: 30, bottom: 70 }}
                       >
@@ -673,12 +751,14 @@ function useRealtimeTelemetry(wsUrl: string, deviceId?: number) {
     };
 
     const connect = () => {
+      console.log('[WebSocket] Intentando conectar a:', wsUrl);
       setStatus('connecting');
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (cancelled) return;
+        console.log('[WebSocket] Conectado a:', wsUrl);
         setStatus('open');
         retryRef.current = 0;
         pingRef.current = setInterval(() => { try { ws.send('ping'); } catch {} }, 25000);
@@ -687,7 +767,11 @@ function useRealtimeTelemetry(wsUrl: string, deviceId?: number) {
       ws.onmessage = (ev) => {
         if (cancelled) return;
         try {
+          // Log para depuración
+          console.log('[WebSocket] Mensaje recibido:', ev.data);
+          
           const msg: WsEnvelope = JSON.parse(ev.data);
+          console.log('[WebSocket] Mensaje parseado:', msg);
 
           // 1) snapshot inicial
           if (msg.topic === 'snapshot') {
@@ -705,7 +789,50 @@ function useRealtimeTelemetry(wsUrl: string, deviceId?: number) {
             return;
           }
 
-          // 2) TELEMETRÍA (tema completo o sufijo)
+          // 2) TELEMETRÍA - Formato nuevo: "tesis/iot/esp32/telemetry"
+          if (msg.topic === 'tesis/iot/esp32/telemetry') {
+            const t = (msg as any).data as TelemetryMsg;
+            console.log('[WebSocket] Procesando telemetría:', t);
+            
+            // El formato nuevo usa 'device' (string) en lugar de 'device_id' (number)
+            // Por ahora aceptamos todos los dispositivos si no hay filtro específico
+            // TODO: Implementar filtrado por device string si es necesario
+            
+            // Usar timestamp del mensaje o generar uno nuevo
+            const ts = t?.ts 
+              ? (t.ts > 1000000000000 ? t.ts : t.ts * 1000)  // Convertir si viene en segundos
+              : Date.now();  // Fallback a timestamp actual
+            
+            // Verificar que al menos haya algún dato válido
+            if (t?.vrms != null || t?.irms != null || t?.s_apparent_va != null) {
+              const p: Point = { 
+                ts, 
+                Vrms: t.vrms, 
+                Irms: t.irms, 
+                S: t.s_apparent_va,
+                device_id: t.device_id 
+              };
+              console.log('[WebSocket] Actualizando datos - Vrms:', t.vrms, 'Irms:', t.irms, 'S:', t.s_apparent_va);
+              
+              lastRef.current = { ts, vrms: t.vrms, irms: t.irms, S: t.s_apparent_va };
+              setLatest({ 
+                vrms: t.vrms, 
+                irms: t.irms, 
+                s_apparent_va: t.s_apparent_va,
+                potencia_activa: t.potencia_activa,
+                factor_potencia: t.factor_potencia,
+                ts,
+                device: t.device,
+                device_id: t.device_id
+              });
+              setSeries((prev) => trimPush(prev, p));
+            } else {
+              console.warn('[WebSocket] Mensaje sin datos válidos:', t);
+            }
+            return;
+          }
+
+          // 3) TELEMETRÍA (formato antiguo - tema completo o sufijo)
           if (msg.topic === 'telemetry' || endsWith((msg as any).topic, '/telemetry')) {
             const t = (msg as any).data as TelemetryMsg;
             // Filtrar por device_id si está seleccionado
@@ -745,13 +872,19 @@ function useRealtimeTelemetry(wsUrl: string, deviceId?: number) {
             setLatest({ vrms: t.vrms, irms: t.irms, s_apparent_va: t.S, ts });
             setSeries((prev) => trimPush(prev, { ts, Vrms: t.vrms, Irms: t.irms, S: t.S }));
           }
-        } catch {
-          // noop
+        } catch (error) {
+          console.error('[WebSocket] Error procesando mensaje:', error, 'Data:', ev.data);
         }
       };
 
-      ws.onclose = () => { if (!cancelled) { setStatus('closed'); cleanup(); backoff(); } };
-      ws.onerror  = () => { if (!cancelled) { setStatus('error');  cleanup(); backoff(); } };
+      ws.onclose = (event) => { 
+        console.log('[WebSocket] Desconectado. Code:', event.code, 'Reason:', event.reason);
+        if (!cancelled) { setStatus('closed'); cleanup(); backoff(); } 
+      };
+      ws.onerror  = (error) => { 
+        console.error('[WebSocket] Error:', error);
+        if (!cancelled) { setStatus('error');  cleanup(); backoff(); } 
+      };
     };
 
       connect();
