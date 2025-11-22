@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
   Paper,
-  Grid,
   Button,
   Divider,
   TextField,
@@ -32,10 +31,17 @@ import { es } from 'date-fns/locale';
 
 interface RegistroFactura {
   id: number;
-  mes_iso: string; // YYYY-MM
-  potencia_facturada_kw: number;
-  potencia_media_medida_kw: number | null;
-  diferencia_kw: number | null;
+  mes_iso: string | null; // YYYY-MM (opcional, para compatibilidad)
+  fecha_desde: string | null; // YYYY-MM-DD
+  fecha_hasta: string | null; // YYYY-MM-DD
+  consumo_facturado_kwh: number | null; // Consumo total facturado en kWh
+  consumo_medido_kwh: number | null; // Consumo total medido por el sistema en kWh
+  diferencia_kwh: number | null; // Diferencia entre facturado y medido
+  periodo_descripcion: string; // Descripción del periodo para mostrar
+  // Campos antiguos para compatibilidad
+  potencia_facturada_kw?: number | null;
+  potencia_media_medida_kw?: number | null;
+  diferencia_kw?: number | null;
 }
 
 interface Company {
@@ -55,32 +61,26 @@ interface CurrentUser {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "super_admin";
   company_id?: number | null;
 }
 
 export default function CompararFactura() {
-  const [mes, setMes] = useState<Date | null>(new Date());
-  const [potenciaFacturadaKW, setPotenciaFacturadaKW] = useState<string>('');
+  const [fechaDesde, setFechaDesde] = useState<Date | null>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [fechaHasta, setFechaHasta] = useState<Date | null>(new Date());
+  const [consumoFacturadoKWh, setConsumoFacturadoKWh] = useState<string>('');
   const [registros, setRegistros] = useState<RegistroFactura[]>([]);
   const [editId, setEditId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [potenciaMediaMesKW, setPotenciaMediaMesKW] = useState<number | null>(null);
-  const [loadingPotencia, setLoadingPotencia] = useState(false);
+  const [consumoMedidoKWh, setConsumoMedidoKWh] = useState<number | null>(null);
+  const [loadingConsumo, setLoadingConsumo] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("");
   const [selectedDevice, setSelectedDevice] = useState<string>("");
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-
-  const mesISO = useMemo(() => {
-    if (!mes) return '';
-    const year = mes.getFullYear();
-    const month = `${mes.getMonth() + 1}`.padStart(2, '0');
-    return `${year}-${month}`;
-  }, [mes]);
 
   // Cargar usuario y companies al iniciar
   useEffect(() => {
@@ -92,7 +92,7 @@ export default function CompararFactura() {
           setCurrentUser(userData);
           
           // Si es admin, cargar todas las companies
-          if (userData.role === "admin") {
+          if (userData.role === "admin" || userData.role === "super_admin") {
             const companiesRes = await fetch("/api/companies");
             if (companiesRes.ok) {
               const companiesData = await companiesRes.json();
@@ -146,14 +146,15 @@ export default function CompararFactura() {
     loadDevices();
   }, [selectedCompany]);
 
-  // Calcular potencia media del mes desde telemetry_history
+  // Calcular consumo total del periodo desde el sistema
   useEffect(() => {
-    if (!mes) {
-      setPotenciaMediaMesKW(null);
+    if (!fechaDesde || !fechaHasta || !selectedDevice) {
+      setConsumoMedidoKWh(null);
       return;
     }
-    fetchPotenciaMediaMes();
-  }, [mes, selectedCompany, selectedDevice]);
+    fetchConsumoPeriodo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fechaDesde, fechaHasta, selectedCompany, selectedDevice]);
 
   const fetchFacturas = async () => {
     setLoading(true);
@@ -174,8 +175,12 @@ export default function CompararFactura() {
       }
       
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Error al obtener facturas');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Error desconocido' }));
+        throw new Error(errorData.error || `Error ${res.status}: ${res.statusText}`);
+      }
       const data = await res.json();
+      console.log('[FACTURA] Facturas recibidas:', data.facturas?.length || 0);
       setRegistros(data.facturas || []);
     } catch (e: any) {
       console.error('Error obteniendo facturas:', e);
@@ -185,70 +190,137 @@ export default function CompararFactura() {
     }
   };
 
-  const fetchPotenciaMediaMes = async () => {
-    if (!mes) return;
+  const fetchConsumoPeriodo = async () => {
+    if (!fechaDesde || !fechaHasta || !selectedDevice) return;
     
-    setLoadingPotencia(true);
+    setLoadingConsumo(true);
     try {
-      const year = mes.getFullYear();
-      const month = `${mes.getMonth() + 1}`.padStart(2, '0');
-      const fechaDesde = `${year}-${month}-01`;
-      const fechaHasta = `${year}-${month}-${new Date(year, mes.getMonth() + 1, 0).getDate()}`;
-
-      // Construir query con filtros
-      let url = `/api/telemetry?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`;
-      if (selectedCompany) {
-        url += `&company_id=${selectedCompany}`;
-      }
-      if (selectedDevice) {
-        url += `&device_id=${selectedDevice}`;
-      }
-
-      const res = await fetch(url);
-      if (!res.ok) {
-        setPotenciaMediaMesKW(null);
+      // Buscar el código del dispositivo
+      const device = devices.find(d => d.id.toString() === selectedDevice);
+      if (!device || !device.code) {
+        setConsumoMedidoKWh(null);
         return;
       }
-      const data = await res.json();
+
+      // Usar el endpoint inteligente que calcula el consumo total
+      const FLASK_API_URL = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000';
+      const start = new Date(fechaDesde);
+      const end = new Date(fechaHasta);
+      end.setHours(23, 59, 59, 999); // Incluir todo el día hasta
+
+      const params = new URLSearchParams({
+        start: start.toISOString(),
+        end: end.toISOString(),
+        device: device.code,
+      });
+
+      const url = `${FLASK_API_URL}/metrics/history-smart?${params.toString()}`;
+      const response = await fetch(url);
       
-      const registrosMes = (data.data || []).filter((r: any) => r.potencia != null);
-      if (registrosMes.length === 0) {
-        setPotenciaMediaMesKW(null);
+      if (!response.ok) {
+        setConsumoMedidoKWh(null);
         return;
       }
+
+      const result = await response.json();
       
-      // Promedio de potencia en W, convertir a kW
-      const promedioW = registrosMes.reduce((sum: number, r: any) => sum + (r.potencia || 0), 0) / registrosMes.length;
-      setPotenciaMediaMesKW(parseFloat((promedioW / 1000).toFixed(3)));
+      if (!result || result.length === 0) {
+        setConsumoMedidoKWh(null);
+        return;
+      }
+
+      // Calcular consumo total del periodo (similar a como se hace en reportes)
+      interface RawDataItem {
+        timestamp: number;
+        potencia: number | null;
+      }
+      
+      const rawData: RawDataItem[] = (result || []).map((item: any) => {
+        const ts = item.ts > 1000000000000 ? item.ts : item.ts * 1000;
+        return {
+          timestamp: ts,
+          potencia: item.potencia_activa ?? null,
+        };
+      }).sort((a: RawDataItem, b: RawDataItem) => a.timestamp - b.timestamp);
+
+      // Calcular consumo total (energía acumulada) del periodo
+      let consumoTotalKWh = 0;
+      if (rawData.length > 1) {
+        for (let i = 0; i < rawData.length - 1; i++) {
+          const potencia = rawData[i].potencia;
+          if (potencia !== null && potencia !== undefined) {
+            const tiempoInicio = rawData[i].timestamp;
+            const tiempoFin = rawData[i + 1].timestamp;
+            const intervaloHoras = (tiempoFin - tiempoInicio) / (1000 * 60 * 60);
+            const potenciaKW = potencia / 1000; // Convertir W a kW
+            consumoTotalKWh += potenciaKW * intervaloHoras;
+          }
+        }
+        // Agregar el último intervalo
+        if (rawData.length > 0) {
+          const ultimaPotencia = rawData[rawData.length - 1].potencia;
+          if (ultimaPotencia !== null && ultimaPotencia !== undefined) {
+            const ultimoIntervalo = rawData.length > 1
+              ? (rawData[rawData.length - 1].timestamp - rawData[rawData.length - 2].timestamp) / (1000 * 60 * 60)
+              : 1 / 24; // Si solo hay una medición, asumir 1 hora
+            const ultimaPotenciaKW = ultimaPotencia / 1000;
+            consumoTotalKWh += ultimaPotenciaKW * ultimoIntervalo;
+          }
+        }
+      } else if (rawData.length === 1) {
+        const potencia = rawData[0].potencia;
+        if (potencia !== null && potencia !== undefined) {
+          // Si solo hay una medición, estimar consumo asumiendo potencia constante
+          const potenciaKW = potencia / 1000;
+          const diasPeriodo = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+          consumoTotalKWh = potenciaKW * 24 * diasPeriodo; // Asumir 24 horas por día
+        }
+      }
+
+      setConsumoMedidoKWh(parseFloat(consumoTotalKWh.toFixed(3)));
     } catch (e) {
-      console.error('Error calculando potencia media:', e);
-      setPotenciaMediaMesKW(null);
+      console.error('Error calculando consumo del periodo:', e);
+      setConsumoMedidoKWh(null);
     } finally {
-      setLoadingPotencia(false);
+      setLoadingConsumo(false);
     }
   };
 
   const limpiarFormulario = () => {
-    setPotenciaFacturadaKW('');
+    setConsumoFacturadoKWh('');
     setEditId(null);
+    setFechaDesde(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    setFechaHasta(new Date());
   };
 
   const onAgregarActualizar = async () => {
-    const valorNum = parseFloat(potenciaFacturadaKW);
+    const valorNum = parseFloat(consumoFacturadoKWh);
     if (isNaN(valorNum) || valorNum < 0) {
-      setError('Ingresa un valor válido');
+      setError('Ingresa un valor válido de consumo (kWh)');
       return;
     }
 
-    if (!mesISO) {
-      setError('Selecciona un mes');
+    if (!fechaDesde || !fechaHasta) {
+      setError('Selecciona el periodo de consumo (fecha desde y fecha hasta)');
+      return;
+    }
+
+    if (!selectedDevice) {
+      setError('Selecciona un dispositivo');
+      return;
+    }
+
+    if (fechaDesde > fechaHasta) {
+      setError('La fecha desde debe ser anterior a la fecha hasta');
       return;
     }
 
     setSaving(true);
     setError(null);
     try {
-      const diferencia = potenciaMediaMesKW != null ? parseFloat((valorNum - potenciaMediaMesKW).toFixed(3)) : null;
+      const fechaDesdeStr = fechaDesde.toISOString().split('T')[0];
+      const fechaHastaStr = fechaHasta.toISOString().split('T')[0];
+      const diferencia = consumoMedidoKWh != null ? parseFloat((valorNum - consumoMedidoKWh).toFixed(3)) : null;
 
       if (editId) {
         // Actualizar factura existente
@@ -256,9 +328,11 @@ export default function CompararFactura() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            potencia_facturada_kw: valorNum,
-            potencia_media_medida_kw: potenciaMediaMesKW,
-            diferencia_kw: diferencia,
+            fecha_desde: fechaDesdeStr,
+            fecha_hasta: fechaHastaStr,
+            consumo_facturado_kwh: valorNum,
+            consumo_medido_kwh: consumoMedidoKWh,
+            diferencia_kwh: diferencia,
           }),
         });
 
@@ -269,10 +343,11 @@ export default function CompararFactura() {
       } else {
         // Crear nueva factura
         const body: any = {
-          mes_iso: mesISO,
-          potencia_facturada_kw: valorNum,
-          potencia_media_medida_kw: potenciaMediaMesKW,
-          diferencia_kw: diferencia,
+          fecha_desde: fechaDesdeStr,
+          fecha_hasta: fechaHastaStr,
+          consumo_facturado_kwh: valorNum,
+          consumo_medido_kwh: consumoMedidoKWh,
+          diferencia_kwh: diferencia,
         };
         
         // Agregar company_id y device_id si están seleccionados
@@ -296,7 +371,7 @@ export default function CompararFactura() {
       }
 
       await fetchFacturas();
-      fetchPotenciaMediaMes(); // Recalcular potencia media
+      fetchConsumoPeriodo(); // Recalcular consumo del periodo
       limpiarFormulario();
     } catch (e: any) {
       setError(e.message || 'Error al guardar factura');
@@ -326,9 +401,19 @@ export default function CompararFactura() {
   const onEditar = (id: number) => {
     const r = registros.find((x) => x.id === id);
     if (!r) return;
-    const [year, month] = r.mes_iso.split('-').map((x) => parseInt(x, 10));
-    setMes(new Date(year, month - 1, 1));
-    setPotenciaFacturadaKW(r.potencia_facturada_kw.toString());
+    
+    if (r.fecha_desde && r.fecha_hasta) {
+      setFechaDesde(new Date(r.fecha_desde));
+      setFechaHasta(new Date(r.fecha_hasta));
+    } else if (r.mes_iso) {
+      // Compatibilidad con registros antiguos que usan mes_iso
+      const [year, month] = r.mes_iso.split('-').map((x) => parseInt(x, 10));
+      setFechaDesde(new Date(year, month - 1, 1));
+      setFechaHasta(new Date(year, month, 0));
+    }
+    
+    const consumoFacturado = r.consumo_facturado_kwh ?? r.potencia_facturada_kw ?? null;
+    setConsumoFacturadoKWh(consumoFacturado != null ? Number(consumoFacturado).toString() : '');
     setEditId(id);
   };
 
@@ -354,7 +439,7 @@ export default function CompararFactura() {
         </Typography>
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2, alignItems: 'center', mb: 2 }}>
-            {currentUser?.role === "admin" && (
+            {(currentUser?.role === "admin" || currentUser?.role === "super_admin") && (
               <FormControl fullWidth size="small">
                 <InputLabel>Company</InputLabel>
                 <Select
@@ -371,7 +456,7 @@ export default function CompararFactura() {
                 </Select>
               </FormControl>
             )}
-            <FormControl fullWidth size="small" disabled={!selectedCompany && currentUser?.role === "admin"}>
+            <FormControl fullWidth size="small" disabled={!selectedCompany && (currentUser?.role === "admin" || currentUser?.role === "super_admin")}>
               <InputLabel>Dispositivo</InputLabel>
               <Select
                 value={selectedDevice}
@@ -388,31 +473,41 @@ export default function CompararFactura() {
             </FormControl>
             <Box>
               <DatePicker
-                label="Mes de facturación"
-                value={mes}
-                onChange={(newValue) => setMes(newValue)}
-                views={["year", "month"]}
+                label="Fecha desde"
+                value={fechaDesde}
+                onChange={(newValue) => setFechaDesde(newValue)}
                 slotProps={{ textField: { fullWidth: true, size: 'small' } }}
                 minDate={new Date(2020, 0, 1)}
                 maxDate={new Date(2025, 11, 31)}
               />
             </Box>
             <Box>
+              <DatePicker
+                label="Fecha hasta"
+                value={fechaHasta}
+                onChange={(newValue) => setFechaHasta(newValue)}
+                slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                minDate={fechaDesde || new Date(2020, 0, 1)}
+                maxDate={new Date(2025, 11, 31)}
+              />
+            </Box>
+            <Box>
               <TextField
-                label="Potencia activa facturada (kW)"
-                value={potenciaFacturadaKW}
-                onChange={(e) => setPotenciaFacturadaKW(e.target.value)}
+                label="Consumo facturado (kWh)"
+                value={consumoFacturadoKWh}
+                onChange={(e) => setConsumoFacturadoKWh(e.target.value)}
                 type="number"
                 inputProps={{ step: '0.01', min: '0' }}
                 fullWidth
                 size="small"
+                helperText="Ingresa el consumo total facturado en el periodo"
               />
             </Box>
             <Box>
               <Button 
                 variant="contained" 
                 onClick={onAgregarActualizar} 
-                disabled={saving || !mesISO || !potenciaFacturadaKW}
+                disabled={saving || !fechaDesde || !fechaHasta || !consumoFacturadoKWh || !selectedDevice}
                 fullWidth
               >
                 {saving ? <CircularProgress size={24} /> : editId ? 'Actualizar' : 'Agregar'}
@@ -421,17 +516,35 @@ export default function CompararFactura() {
           </Box>
         </LocalizationProvider>
 
-        <Box sx={{ mt: 2, color: 'text.secondary' }}>
-          {loadingPotencia ? (
-            <Typography variant="body2">Calculando potencia media...</Typography>
+        <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+          {loadingConsumo ? (
+            <Typography variant="body2">Calculando consumo del periodo...</Typography>
           ) : (
             <>
-              <Typography variant="body2">
-                Potencia media medida del mes: {potenciaMediaMesKW != null ? `${potenciaMediaMesKW} kW` : 'Sin datos'}
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Consumo medido por el sistema:</strong> {consumoMedidoKWh != null ? `${consumoMedidoKWh} kWh` : 'Sin datos disponibles'}
               </Typography>
-              <Typography variant="body2">
-                Diferencia: {potenciaMediaMesKW != null && potenciaFacturadaKW ? `${(parseFloat(potenciaFacturadaKW) - potenciaMediaMesKW).toFixed(3)} kW` : '-'}
-              </Typography>
+              {consumoMedidoKWh != null && consumoFacturadoKWh && (
+                <>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    <strong>Consumo facturado:</strong> {parseFloat(consumoFacturadoKWh).toFixed(3)} kWh
+                  </Typography>
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      color: Math.abs(parseFloat(consumoFacturadoKWh) - consumoMedidoKWh) > 1 
+                        ? 'error.main' 
+                        : 'success.main'
+                    }}
+                  >
+                    <strong>Diferencia:</strong> {(parseFloat(consumoFacturadoKWh) - consumoMedidoKWh).toFixed(3)} kWh
+                    {Math.abs(parseFloat(consumoFacturadoKWh) - consumoMedidoKWh) > 1 && (
+                      <span> ⚠️ Hay una diferencia significativa</span>
+                    )}
+                  </Typography>
+                </>
+              )}
             </>
           )}
         </Box>
@@ -442,41 +555,90 @@ export default function CompararFactura() {
           <Table aria-label="tabla comparar factura">
             <TableHead>
               <TableRow>
-                <TableCell>Mes</TableCell>
-                <TableCell>Potencia facturada (kW)</TableCell>
-                <TableCell>Potencia media medida (kW)</TableCell>
-                <TableCell>Diferencia (kW)</TableCell>
+                <TableCell>Periodo</TableCell>
+                <TableCell align="right">Consumo Facturado (kWh)</TableCell>
+                <TableCell align="right">Consumo Medido (kWh)</TableCell>
+                <TableCell align="right">Diferencia (kWh)</TableCell>
+                <TableCell align="center">Estado</TableCell>
                 <TableCell align="right">Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
+                  <TableCell colSpan={6} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : registros.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">Aún no hay registros</TableCell>
+                  <TableCell colSpan={6} align="center">Aún no hay registros</TableCell>
                 </TableRow>
               ) : (
-                registros.map((r) => (
-                  <TableRow key={r.id} hover>
-                    <TableCell>{r.mes_iso}</TableCell>
-                    <TableCell>{r.potencia_facturada_kw.toFixed(3)}</TableCell>
-                    <TableCell>{r.potencia_media_medida_kw != null ? r.potencia_media_medida_kw.toFixed(3) : '-'}</TableCell>
-                    <TableCell>{r.diferencia_kw != null ? r.diferencia_kw.toFixed(3) : '-'}</TableCell>
-                    <TableCell align="right">
-                      <IconButton size="small" onClick={() => onEditar(r.id)} color="primary">
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" onClick={() => onEliminar(r.id)} color="error">
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))
+                registros.map((r) => {
+                  // Usar consumo_facturado_kwh o potencia_facturada_kw como fallback
+                  // Convertir a número para asegurar que sea un número válido
+                  const consumoFacturadoRaw = r.consumo_facturado_kwh ?? r.potencia_facturada_kw ?? null;
+                  const consumoFacturado = consumoFacturadoRaw != null ? Number(consumoFacturadoRaw) : null;
+                  
+                  // Usar diferencia_kwh o diferencia_kw como fallback
+                  const diferenciaRaw = r.diferencia_kwh ?? r.diferencia_kw ?? null;
+                  const diferencia = diferenciaRaw != null ? Number(diferenciaRaw) : null;
+                  
+                  // Usar consumo_medido_kwh o potencia_media_medida_kw como fallback
+                  const consumoMedidoRaw = r.consumo_medido_kwh ?? r.potencia_media_medida_kw ?? null;
+                  const consumoMedido = consumoMedidoRaw != null ? Number(consumoMedidoRaw) : null;
+                  
+                  const tieneDiferencia = diferencia != null && !isNaN(diferencia) && Math.abs(diferencia) > 1;
+                  const periodoDesc = r.periodo_descripcion || 
+                    (r.fecha_desde && r.fecha_hasta 
+                      ? `${r.fecha_desde} a ${r.fecha_hasta}` 
+                      : r.mes_iso || 'N/A');
+                  
+                  return (
+                    <TableRow key={r.id} hover>
+                      <TableCell>{periodoDesc}</TableCell>
+                      <TableCell align="right">
+                        {consumoFacturado != null && !isNaN(consumoFacturado) ? consumoFacturado.toFixed(3) : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {consumoMedido != null && !isNaN(consumoMedido) ? consumoMedido.toFixed(3) : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography 
+                          variant="body2"
+                          sx={{ 
+                            color: tieneDiferencia ? 'error.main' : diferencia != null && !isNaN(diferencia) ? 'success.main' : 'text.secondary',
+                            fontWeight: tieneDiferencia ? 'bold' : 'normal'
+                          }}
+                        >
+                          {diferencia != null && !isNaN(diferencia) ? diferencia.toFixed(3) : '-'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {diferencia != null && (
+                          <Typography 
+                            variant="caption"
+                            sx={{ 
+                              color: tieneDiferencia ? 'error.main' : 'success.main',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {tieneDiferencia ? '⚠️ Diferencia' : '✓ Coincide'}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <IconButton size="small" onClick={() => onEditar(r.id)} color="primary">
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => onEliminar(r.id)} color="error">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

@@ -42,15 +42,9 @@ interface Device {
   company_id: number;
 }
 
-interface CurrentUser {
-  id: number;
-  email: string;
-  name: string;
-  role: "admin" | "user" | "super_admin";
-  company_id?: number | null;
-}
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5000/ws';
+const FLASK_API_URL = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5000';
 const MAX_POINTS = 180; // ~3 min si llega 1 punto/seg
 
 // helper a nivel módulo
@@ -59,9 +53,7 @@ const endsWith = (t: string, suffix: string) => typeof t === 'string' && t.endsW
 export default function Page() {
   const [selectedCompany, setSelectedCompany] = useState<string>("");
   const [selectedDevice, setSelectedDevice] = useState<string>("");
-  const [, setCompanies] = useState<Company[]>([]);
-  const [, setDevices] = useState<Device[]>([]);
-  const [, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [dbLatest, setDbLatest] = useState<{ voltaje?: number; corriente?: number; potencia?: number; created_at?: string } | null>(null);
   const [historicalData, setHistoricalData] = useState<Point[]>([]);
   const [timeRange, setTimeRange] = useState<'24h' | 'week' | 'month' | 'custom'>('24h');
@@ -124,8 +116,8 @@ export default function Page() {
         const userRes = await fetch("/api/auth/me");
         if (userRes.ok) {
           try {
-            const userData = await safeJsonParse(userRes);
-            setCurrentUser(userData);
+            await safeJsonParse(userRes);
+            // Usuario cargado pero no se necesita almacenar en estado
           } catch (err) {
             console.error("Error parseando respuesta de /api/auth/me:", err);
             // Si no está autenticado, no es un error crítico, solo no cargamos el usuario
@@ -160,6 +152,8 @@ export default function Page() {
                   
                   if (principalDevice) {
                     setSelectedDevice(principalDevice.id.toString());
+                    // Guardar devices en estado para usar en loadLatestTelemetry
+                    setDevices(devicesData.devices || []);
                   }
                 } catch (err) {
                   console.error("Error parseando respuesta de /api/devices:", err);
@@ -217,7 +211,7 @@ export default function Page() {
     };
   }, [timeRange, customDateFrom, customDateTo]);
 
-  // Cargar últimos datos de telemetría desde la base de datos cuando se selecciona un dispositivo
+  // Cargar últimos datos de telemetría usando el endpoint inteligente
   useEffect(() => {
     async function loadLatestTelemetry() {
       if (!selectedDevice) {
@@ -228,41 +222,70 @@ export default function Page() {
 
       try {
         const { desde, hasta } = getDateRange;
+        const start = new Date(desde);
+        const end = new Date(hasta);
         
-        const url = `/api/telemetry?device_id=${selectedDevice}&fechaDesde=${desde}&fechaHasta=${hasta}`;
+        // Obtener el código del dispositivo
+        const device = devices.find(d => d.id.toString() === selectedDevice);
+        const deviceCode = device?.code || selectedDevice; // Usar código si está disponible, sino el ID
+        
+        // Construir URL para el endpoint inteligente /metrics/history-smart
+        const params = new URLSearchParams({
+          start: start.toISOString(),
+          end: end.toISOString(),
+        });
+        
+        if (deviceCode) {
+          params.append('device', deviceCode);
+        }
+        
+        const url = `${FLASK_API_URL}/metrics/history-smart?${params.toString()}`;
+        console.log('[Dashboard] Consultando datos históricos:', url);
+        
         const res = await fetch(url);
         
         if (res.ok) {
-          let data;
+          let result;
           try {
-            data = await safeJsonParse(res);
+            result = await res.json();
           } catch (err) {
-            console.error("Error parseando respuesta de /api/telemetry:", err);
+            console.error("Error parseando respuesta de /metrics/history-smart:", err);
             return;
           }
-          if (data.data && data.data.length > 0) {
-            // Obtener el primer registro (más reciente, porque está ordenado DESC)
-            const latest = data.data[0];
+          
+          // El endpoint retorna un array directo: [{ ts, device, vrms, irms, s_apparent_va, ... }, ...]
+          if (result && Array.isArray(result) && result.length > 0) {
+            // Ordenar por timestamp (más reciente primero)
+            const sortedData = [...result].sort((a, b) => {
+              const tsA = a.ts > 1000000000000 ? a.ts : a.ts * 1000;
+              const tsB = b.ts > 1000000000000 ? b.ts : b.ts * 1000;
+              return tsB - tsA;
+            });
+            
+            // Obtener el primer registro (más reciente)
+            const latest = sortedData[0];
+            const latestTs = latest.ts > 1000000000000 ? latest.ts : latest.ts * 1000;
+            
             setDbLatest({
-              voltaje: latest.voltaje,
-              corriente: latest.corriente,
-              potencia: latest.potencia,
-              created_at: latest.created_at,
+              voltaje: latest.vrms,
+              corriente: latest.irms,
+              potencia: latest.potencia_activa,
+              created_at: new Date(latestTs).toISOString(),
             });
 
             // Convertir datos históricos a formato Point para el gráfico
-            // Muestrear cada 10 segundos para evitar ondas senoidales
-            const allPoints: Point[] = data.data
-              .map((item: any) => ({
-                ts: new Date(item.created_at || item.fecha).getTime(),
-                Vrms: item.voltaje ? parseFloat(String(item.voltaje)) : undefined,
-                Irms: item.corriente ? parseFloat(String(item.corriente)) : undefined,
-                S: item.voltaje && item.corriente 
-                  ? parseFloat(String(item.voltaje)) * parseFloat(String(item.corriente))
-                  : undefined,
-              }))
+            const allPoints: Point[] = result
+              .map((item: any) => {
+                const ts = item.ts > 1000000000000 ? item.ts : item.ts * 1000;
+                return {
+                  ts,
+                  Vrms: item.vrms != null ? parseFloat(String(item.vrms)) : undefined,
+                  Irms: item.irms != null ? parseFloat(String(item.irms)) : undefined,
+                  S: item.s_apparent_va != null ? parseFloat(String(item.s_apparent_va)) : undefined,
+                };
+              })
               .filter((p: Point) => p.Vrms != null || p.Irms != null)
-              .reverse(); // Ordenar cronológicamente
+              .sort((a, b) => a.ts - b.ts); // Ordenar cronológicamente
             
             // Muestrear según el período seleccionado
             const sampledPoints: Point[] = [];
@@ -280,8 +303,7 @@ export default function Page() {
                 break;
               case 'custom':
                 // Calcular ventana basada en el rango total
-                const { desde: desdeCustom, hasta: hastaCustom } = getDateRange;
-                const totalRange = new Date(hastaCustom).getTime() - new Date(desdeCustom).getTime();
+                const totalRange = end.getTime() - start.getTime();
                 windowSize = Math.max(60000, totalRange / 200); // Máximo 200 puntos
                 break;
               default:
@@ -355,9 +377,15 @@ export default function Page() {
             setDbLatest(null);
             setHistoricalData([]);
           }
+        } else {
+          console.error("Error obteniendo datos históricos:", res.status, res.statusText);
+          setDbLatest(null);
+          setHistoricalData([]);
         }
       } catch (err) {
         console.error("Error cargando telemetría:", err);
+        setDbLatest(null);
+        setHistoricalData([]);
       }
     }
 
@@ -384,7 +412,7 @@ export default function Page() {
     
     const interval = setInterval(loadLatestTelemetry, pollInterval);
     return () => clearInterval(interval);
-  }, [selectedDevice, timeRange, getDateRange]);
+  }, [selectedDevice, timeRange, getDateRange, devices]);
 
   const theme = useTheme();
   const axisColor = theme.palette.text.secondary;

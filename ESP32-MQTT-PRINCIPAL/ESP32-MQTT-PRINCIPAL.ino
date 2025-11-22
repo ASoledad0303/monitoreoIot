@@ -56,7 +56,8 @@ Stage stage = RUN; // Siempre en stage 4 (RUN)
 #define WIFI_SSID   "Flia Peralta"
 #define WIFI_PASS   "P3p4.2705"
 
-#define MQTT_HOST   "192.168.100.64"   // IP del broker MQTT
+//#define MQTT_HOST   "192.168.100.64"
+#define MQTT_HOST   "10.143.221.168" // IP del broker MQTT
 #define MQTT_PORT   1883
 #define MQTT_USER   ""               // si tu broker no requiere, dejar vacío
 #define MQTT_PASS   ""               // idem

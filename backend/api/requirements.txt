@@ -1,0 +1,9 @@
+flask==3.0.3
+paho-mqtt==2.1.0
+flask-cors==4.0.0
+gunicorn==22.0.0
+flask-sock==0.7.0
+simple-websocket==1.0.0
+eventlet==0.36.1
+influxdb-client==1.43.0
+psycopg2-binary==2.9.9

@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const companyIdParam = searchParams.get("company_id");
 
+    console.log(`[API Devices] Usuario: ${user.email}, Rol: ${user.role}, company_id param: ${companyIdParam}`);
+
     // Si es super_admin, puede ver todos los dispositivos o filtrar por company
     // Si es admin, solo ve dispositivos de su company
     // Si es user, solo ve dispositivos de su company
@@ -68,6 +70,7 @@ export async function GET(req: NextRequest) {
       sql += ` ORDER BY d.company_id, d.name ASC`;
 
       const result = await query(sql, params);
+      console.log(`[API Devices] super_admin: ${result.rows.length} dispositivos encontrados`);
       return NextResponse.json({ devices: result.rows });
     } else if (user.role === "admin") {
       // Admin solo ve dispositivos de su company
@@ -76,7 +79,11 @@ export async function GET(req: NextRequest) {
         [user.sub]
       );
 
-      if (!userCompany.rows[0]?.company_id) {
+      const userCompanyId = userCompany.rows[0]?.company_id;
+      console.log(`[API Devices] admin: company_id del usuario = ${userCompanyId}`);
+      
+      if (!userCompanyId) {
+        console.log(`[API Devices] admin: Usuario no tiene company asignada`);
         return NextResponse.json(
           { error: "Usuario no tiene company asignada" },
           { status: 403 }
@@ -91,9 +98,10 @@ export async function GET(req: NextRequest) {
          LEFT JOIN companies c ON d.company_id = c.id
          WHERE d.company_id = $1 AND d.is_active = true
          ORDER BY d.name ASC`,
-        [userCompany.rows[0].company_id]
+        [userCompanyId]
       );
 
+      console.log(`[API Devices] admin: ${result.rows.length} dispositivos encontrados para company_id ${userCompanyId}`);
       return NextResponse.json({ devices: result.rows });
     } else {
       // Usuario regular: solo ve dispositivos de su company
@@ -102,7 +110,11 @@ export async function GET(req: NextRequest) {
         [user.sub]
       );
 
-      if (!userCompany.rows[0]?.company_id) {
+      const userCompanyId = userCompany.rows[0]?.company_id;
+      console.log(`[API Devices] user: company_id del usuario = ${userCompanyId}`);
+      
+      if (!userCompanyId) {
+        console.log(`[API Devices] user: Usuario no tiene company asignada`);
         return NextResponse.json(
           { error: "Usuario no tiene company asignada" },
           { status: 403 }
@@ -117,9 +129,10 @@ export async function GET(req: NextRequest) {
          LEFT JOIN companies c ON d.company_id = c.id
          WHERE d.company_id = $1 AND d.is_active = true
          ORDER BY d.name ASC`,
-        [userCompany.rows[0].company_id]
+        [userCompanyId]
       );
 
+      console.log(`[API Devices] user: ${result.rows.length} dispositivos encontrados para company_id ${userCompanyId}`);
       return NextResponse.json({ devices: result.rows });
     }
   } catch (e) {

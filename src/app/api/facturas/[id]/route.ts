@@ -4,9 +4,16 @@ import { query } from "@/lib/db";
 import { z } from "zod";
 
 const UpdateFacturaSchema = z.object({
+  // Campos antiguos (opcionales)
   potencia_facturada_kw: z.number().min(0).optional(),
   potencia_media_medida_kw: z.number().min(0).optional(),
   diferencia_kw: z.number().optional(),
+  // Nuevos campos
+  fecha_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  fecha_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  consumo_facturado_kwh: z.number().min(0).optional(),
+  consumo_medido_kwh: z.number().min(0).optional(),
+  diferencia_kwh: z.number().optional(),
 });
 
 /**
@@ -37,8 +44,14 @@ export async function PUT(
     }
 
     // Verificar que la factura pertenece al usuario
-    const facturaCheck = await query<{ id: number; potencia_facturada_kw: number; potencia_media_medida_kw: number | null }>(
-      "SELECT id, potencia_facturada_kw, potencia_media_medida_kw FROM facturas WHERE id = $1 AND user_id = $2",
+    const facturaCheck = await query<{ 
+      id: number; 
+      potencia_facturada_kw: number | null; 
+      potencia_media_medida_kw: number | null;
+      consumo_facturado_kwh: number | null;
+      consumo_medido_kwh: number | null;
+    }>(
+      "SELECT id, potencia_facturada_kw, potencia_media_medida_kw, consumo_facturado_kwh, consumo_medido_kwh FROM facturas WHERE id = $1 AND user_id = $2",
       [facturaId, user.sub]
     );
 
@@ -60,13 +73,24 @@ export async function PUT(
       potencia_facturada_kw = existing.potencia_facturada_kw,
       potencia_media_medida_kw = existing.potencia_media_medida_kw,
       diferencia_kw,
+      fecha_desde,
+      fecha_hasta,
+      consumo_facturado_kwh = existing.consumo_facturado_kwh,
+      consumo_medido_kwh = existing.consumo_medido_kwh,
+      diferencia_kwh,
     } = parsed.data;
 
-    // Calcular diferencia si no se proporciona
-    const diferencia =
+    // Calcular diferencias si no se proporcionan
+    const diferenciaKw =
       diferencia_kw ??
-      (potencia_media_medida_kw !== null
+      (potencia_media_medida_kw !== null && potencia_facturada_kw !== null
         ? potencia_media_medida_kw - potencia_facturada_kw
+        : null);
+    
+    const diferenciaKwh =
+      diferencia_kwh ??
+      (consumo_medido_kwh !== null && consumo_facturado_kwh !== null
+        ? consumo_facturado_kwh - consumo_medido_kwh
         : null);
 
     await query(
@@ -74,12 +98,22 @@ export async function PUT(
        SET potencia_facturada_kw = $1,
            potencia_media_medida_kw = $2,
            diferencia_kw = $3,
+           fecha_desde = $4,
+           fecha_hasta = $5,
+           consumo_facturado_kwh = $6,
+           consumo_medido_kwh = $7,
+           diferencia_kwh = $8,
            updated_at = NOW()
-       WHERE id = $4 AND user_id = $5`,
+       WHERE id = $9 AND user_id = $10`,
       [
         potencia_facturada_kw,
         potencia_media_medida_kw,
-        diferencia,
+        diferenciaKw,
+        fecha_desde || null,
+        fecha_hasta || null,
+        consumo_facturado_kwh,
+        consumo_medido_kwh,
+        diferenciaKwh,
         facturaId,
         user.sub,
       ]

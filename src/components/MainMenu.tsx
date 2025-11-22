@@ -22,7 +22,8 @@ import {
   Logout as LogoutIcon,
   AdminPanelSettings as AdminIcon,
   Business as BusinessIcon,
-  Sensors as SensorsIcon
+  Sensors as SensorsIcon,
+  PowerOff as PowerOffIcon
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 
@@ -66,6 +67,7 @@ export default function MainMenu() {
   const menuItems = [
     { text: 'Monitoreo en tiempo real', icon: <MonitorIcon />, path: '/' },
     { text: 'Reporte de consumo', icon: <ChartIcon />, path: '/reportes' },
+    { text: 'Reporte de cortes de luz', icon: <PowerOffIcon />, path: '/reportes/cortes-luz' },
     { text: 'Panel de alertas', icon: <AlertIcon />, path: '/alertas' },
     { text: 'Comparar factura', icon: <BillIcon />, path: '/factura' },
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion' }
@@ -112,7 +114,7 @@ export default function MainMenu() {
           </Box>
           <Divider />
           <List>
-            {menuItems.slice(0, 4).map((item) => (
+            {menuItems.slice(0, 3).map((item) => (
               <ListItem 
                 key={item.text} 
                 onClick={() => handleNavigation(item.path)}
@@ -127,7 +129,7 @@ export default function MainMenu() {
           </List>
           <Divider />
           <List>
-            {menuItems.slice(4).map((item) => (
+            {menuItems.slice(3).map((item) => (
               <ListItem 
                 key={item.text} 
                 onClick={() => handleNavigation(item.path)}
