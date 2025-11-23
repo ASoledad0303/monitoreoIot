@@ -104,36 +104,81 @@ def parse_influx_line(line):
         return None
 
 def insert_telemetry(conn, data):
-    """Inserta datos de telemetría en PostgreSQL"""
+    """Inserta datos de telemetría en PostgreSQL - tabla telemetry_history"""
     try:
-        # Solo procesar measurement telemetry
-        if data['measurement'] != 'telemetry':
-            print(f"DEBUG: Ignorando measurement '{data['measurement']}' (solo procesamos 'telemetry')", file=sys.stderr)
+        # Procesar measurements telemetry y esp
+        if data['measurement'] not in ['telemetry', 'esp']:
+            print(f"DEBUG: Ignorando measurement '{data['measurement']}' (solo procesamos 'telemetry' y 'esp')", file=sys.stderr)
             return
         
-        device = data['tags'].get('device')
-        if not device:
+        device_code = data['tags'].get('device')
+        if not device_code:
             print(f"DEBUG: No se encontró tag 'device' en los datos: {data}", file=sys.stderr)
             return
         
         fields = data['fields']
         cursor = conn.cursor()
         
+        # Obtener device_id, company_id y user_id desde el código del dispositivo
+        # Buscar por código del dispositivo o por device_id si el código es un ID
         cursor.execute("""
-            INSERT INTO telemetry ("time", device, vrms, irms, s_apparent_va, potencia_activa, factor_potencia)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            SELECT d.id as device_id, d.company_id, 
+                   COALESCE(
+                       (SELECT u.id FROM users u 
+                        INNER JOIN roles r ON u.role_id = r.id
+                        WHERE u.company_id = d.company_id 
+                        AND (r.name = 'admin' OR r.name = 'super_admin')
+                        LIMIT 1),
+                       (SELECT u.id FROM users u 
+                        WHERE u.company_id = d.company_id 
+                        LIMIT 1),
+                       NULL
+                   ) as user_id
+            FROM devices d
+            WHERE d.code = %s OR d.id::text = %s
+            LIMIT 1
+        """, (device_code, device_code))
+        
+        device_info = cursor.fetchone()
+        if not device_info:
+            print(f"DEBUG: No se encontró dispositivo con code/id='{device_code}'", file=sys.stderr)
+            cursor.close()
+            return
+        
+        device_id = device_info[0]
+        company_id = device_info[1]
+        user_id = device_info[2]
+        
+        # Obtener fecha del timestamp (solo la fecha, sin hora)
+        fecha = data['time'].date() if hasattr(data['time'], 'date') else data['time'].date()
+        
+        # Mapear campos: vrms -> voltaje, irms -> corriente, potencia_activa -> potencia
+        voltaje = fields.get('vrms')
+        corriente = fields.get('irms')
+        potencia = fields.get('potencia_activa')
+        energia_acumulada = None  # No se calcula aquí
+        
+        # Insertar en telemetry_history
+        cursor.execute("""
+            INSERT INTO telemetry_history (
+                user_id, fecha, voltaje, corriente, potencia, energia_acumulada,
+                company_id, device_id, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            data['time'],
-            device,
-            fields.get('vrms'),
-            fields.get('irms'),
-            fields.get('s_apparent_va'),
-            fields.get('potencia_activa'),
-            fields.get('factor_potencia')
+            user_id,
+            fecha,
+            voltaje,
+            corriente,
+            potencia,
+            energia_acumulada,
+            company_id,
+            device_id,
+            data['time']  # created_at usa el timestamp completo
         ))
         conn.commit()
         cursor.close()
-        print(f"DEBUG: Insertado registro para device={device}, vrms={fields.get('vrms')}, irms={fields.get('irms')}", file=sys.stderr)
+        print(f"DEBUG: Insertado en telemetry_history: device={device_code}, device_id={device_id}, fecha={fecha}, voltaje={voltaje}, corriente={corriente}, potencia={potencia}", file=sys.stderr)
     except Exception as e:
         print(f"Error insertando datos: {e} - {data}", file=sys.stderr)
         import traceback
@@ -152,10 +197,23 @@ def main():
     line_count = 0
     
     try:
+        # Leer todas las líneas disponibles
+        import select
+        import sys
+        
+        # Para Windows/Docker, leer directamente de stdin
         for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+                
             line_count += 1
             if line_count % 10 == 0:
                 print(f"DEBUG: Procesadas {line_count} líneas", file=sys.stderr)
+            
+            # Log cada línea recibida para debug
+            if line_count <= 5:
+                print(f"DEBUG: Línea {line_count} recibida: {line[:200]}", file=sys.stderr)
             
             data = parse_influx_line(line)
             if data:
@@ -171,7 +229,8 @@ def main():
         traceback.print_exc(file=sys.stderr)
     finally:
         print(f"DEBUG: Cerrando conexión. Total líneas procesadas: {line_count}", file=sys.stderr)
-        conn.close()
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
     main()

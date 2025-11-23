@@ -107,6 +107,93 @@ samples_current = deque(maxlen=SAMPLES_BUFFER_SIZE)
 # Cola para broadcasting SSE (cada item es str ya serializado)
 sse_queue = queue.Queue()
 
+def _save_to_telemetry_history(device_code: str, voltaje: float = None, corriente: float = None, potencia: float = None, timestamp: datetime = None):
+    """Guarda datos en telemetry_history en segundo plano"""
+    print(f"[MQTT] _save_to_telemetry_history llamado - device_code={device_code}, voltaje={voltaje}, corriente={corriente}, potencia={potencia}")
+    def save_task():
+        try:
+            print(f"[MQTT] [Thread] Iniciando guardado para device={device_code}")
+            conn = get_postgres_connection()
+            if not conn:
+                print(f"[MQTT] [Thread] Error: No se pudo conectar a PostgreSQL para guardar datos de {device_code}")
+                return
+            
+            print(f"[MQTT] [Thread] Conectado a PostgreSQL, buscando dispositivo {device_code}")
+            cursor = conn.cursor()
+            
+            # Obtener device_id, company_id y user_id desde el código del dispositivo
+            cursor.execute("""
+                SELECT d.id as device_id, d.company_id, 
+                       COALESCE(
+                           (SELECT u.id FROM users u 
+                            INNER JOIN roles r ON u.role_id = r.id
+                            WHERE u.company_id = d.company_id 
+                            AND (r.name = 'admin' OR r.name = 'super_admin')
+                            LIMIT 1),
+                           (SELECT u.id FROM users u 
+                            WHERE u.company_id = d.company_id 
+                            LIMIT 1),
+                           NULL
+                       ) as user_id
+                FROM devices d
+                WHERE d.code = %s OR d.id::text = %s
+                LIMIT 1
+            """, (device_code, device_code))
+            
+            device_info = cursor.fetchone()
+            if not device_info:
+                print(f"[MQTT] Warning: No se encontró dispositivo con code/id='{device_code}' en la base de datos")
+                cursor.close()
+                conn.close()
+                return
+            
+            device_id = device_info[0]
+            company_id = device_info[1]
+            user_id = device_info[2]
+            
+            # Obtener fecha del timestamp (solo la fecha, sin hora)
+            if timestamp:
+                fecha = timestamp.date()
+            else:
+                fecha = datetime.now(timezone.utc).date()
+            
+            # Insertar en telemetry_history
+            cursor.execute("""
+                INSERT INTO telemetry_history (
+                    user_id, fecha, voltaje, corriente, potencia, energia_acumulada,
+                    company_id, device_id, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                user_id,
+                fecha,
+                voltaje,
+                corriente,
+                potencia,
+                None,  # energia_acumulada no se calcula aquí
+                company_id,
+                device_id,
+                timestamp if timestamp else datetime.now(timezone.utc)
+            ))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            print(f"[MQTT] Guardado en telemetry_history: device={device_code}, device_id={device_id}, fecha={fecha}, voltaje={voltaje}, corriente={corriente}, potencia={potencia}")
+        except Exception as e:
+            print(f"[MQTT] Error guardando en telemetry_history: {e}")
+            import traceback
+            traceback.print_exc()
+            if conn:
+                try:
+                    conn.rollback()
+                    conn.close()
+                except:
+                    pass
+    
+    # Ejecutar en segundo plano
+    thread = threading.Thread(target=save_task, daemon=True)
+    thread.start()
+
 def _update_metrics(topic: str, payload: Dict[str, Any]):
     """Actualiza el estado en memoria y encola eventos SSE."""
     global last_metrics, last_telemetry
@@ -201,6 +288,8 @@ def on_connect(client, userdata, flags, rc, properties=None):
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload_raw = msg.payload.decode("utf-8", errors="ignore")
+    print(f"[MQTT] Mensaje recibido - Topic: {topic}, Payload: {payload_raw[:200]}")
+    
     # Intenta parsear JSON si corresponde; las muestras vienen como JSON {"ts":..,"v":..} / {"ts":..,"i":..}
     try:
         data = json.loads(payload_raw)
@@ -209,11 +298,32 @@ def on_message(client, userdata, msg):
 
     # Nuevo formato: esp/energia/{device_id}/state
     if topic.startswith("esp/energia/") and topic.endswith("/state"):
+        print(f"[MQTT] Procesando mensaje del tópico esp/energia/+/state")
         if isinstance(data, dict):
             # Agregar timestamp si no viene en el payload
             if "ts" not in data:
                 data["ts"] = int(time.time() * 1000)
             _update_metrics(topic, data)
+            
+            # Guardar en telemetry_history en segundo plano
+            device_code = data.get("device")
+            print(f"[MQTT] Device code extraído: {device_code}")
+            if device_code:
+                # Mapear campos: V -> voltaje, I -> corriente, P -> potencia
+                voltaje = data.get("V")
+                corriente = data.get("I")
+                potencia = data.get("P")
+                print(f"[MQTT] Datos extraídos - V={voltaje}, I={corriente}, P={potencia}")
+                
+                # Convertir timestamp a datetime
+                ts_ms = data.get("ts", int(time.time() * 1000))
+                timestamp = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+                
+                # Guardar en segundo plano
+                print(f"[MQTT] Llamando a _save_to_telemetry_history para device={device_code}")
+                _save_to_telemetry_history(device_code, voltaje, corriente, potencia, timestamp)
+            else:
+                print(f"[MQTT] Warning: No se encontró 'device' en el payload: {data}")
     
     # Formato antiguo (compatibilidad)
     elif topic in (TOPIC_VRMS, TOPIC_IRMS, TOPIC_S_APPARENT, TOPIC_TELEMETRY):
@@ -568,8 +678,6 @@ def metrics_history_postgres():
         """
         params = [start_dt, end_dt, device, device, device]
         
-        query += " ORDER BY th.created_at ASC"
-        
         print(f"[POSTGRES] Ejecutando query: {query}")
         print(f"[POSTGRES] Parámetros: {params}")
         print(f"[POSTGRES] Rango de fechas: {start_dt} a {end_dt}")
@@ -641,25 +749,23 @@ def metrics_history_smart():
     except Exception as e:
         return jsonify({"error": f"Invalid date format: {e}"}), 400
     
-    # Decidir qué base de datos usar
-    # Si el rango incluye fechas recientes (últimos 30 días), usar InfluxDB
-    # Si el rango es mayor a 30 días pero incluye hoy, combinar ambas fuentes
-    now = datetime.now(timezone.utc)
-    days_since_start = (now - start_dt).days
-    days_since_end = (now - end_dt).days
-    
+    # USAR POSTGRESQL DIRECTAMENTE (InfluxDB no está trayendo datos)
+    # USAR SOLO POSTGRESQL - NO consultar InfluxDB
     print(f"[HISTORY-SMART] Rango: {dias} días, start: {start_dt}, end: {end_dt}, device: {device}")
-    print(f"[HISTORY-SMART] Días desde inicio: {days_since_start}, días desde fin: {days_since_end}")
+    print(f"[HISTORY-SMART] Usando SOLO PostgreSQL (InfluxDB deshabilitado)")
     
-    # Si el rango incluye datos recientes (últimos 30 días), intentar InfluxDB primero
-    use_influx = influx and days_since_end <= 30
+    # Siempre usar PostgreSQL
+    use_influx = False
+    
+    # Inicializar variable para evitar errores de scope
+    available_measurements = []
     
     if use_influx:
         print(f"[HISTORY-SMART] Intentando InfluxDB primero (rango incluye datos recientes)")
         print(f"[HISTORY-SMART] InfluxDB configurado: URL={INFLUXDB_URL}, Org={INFLUXDB_ORG}, Bucket={INFLUXDB_BUCKET}")
+        print(f"[HISTORY-SMART] Rango solicitado: {start_dt} a {end_dt}, device: {device}")
         
         # Primero, verificar qué devices hay disponibles en InfluxDB en el rango de fechas solicitado
-        available_measurements = []  # Variable para usar más adelante
         try:
             # Usar el rango de fechas solicitado para buscar devices
             start_iso_temp = start_dt.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -739,20 +845,65 @@ def metrics_history_smart():
         print(f"[HISTORY-SMART] Rango InfluxDB: {start_iso} a {end_iso}")
         print(f"[HISTORY-SMART] Dispositivos a buscar en InfluxDB: {device_ids_to_search}")
         
-        # Buscar en todos los device IDs posibles
+        # BUSCAR DIRECTAMENTE TODOS LOS DATOS SIN FILTROS (basado en ejemplo del usuario)
         all_rows = []
-        for device_id in device_ids_to_search:
-            # SIEMPRE filtrar por dispositivo
-            # Telegraf guarda: measurement="esp", tag=device="E2641D44", fields=vrms,irms,etc
-            # También puede haber measurement="telemetry" para tópicos antiguos
-            # Buscar en ambos measurements
-            # Usar los measurements encontrados o fallback
-            if available_measurements:
-                measurement_filter_q = " or ".join([f'r._measurement == "{m}"' for m in available_measurements])
-            else:
-                measurement_filter_q = 'r._measurement == "esp" or r._measurement == "telemetry"'
-            
-            q = f'''
+        print(f"[HISTORY-SMART] ===== BUSCANDO DIRECTAMENTE TODOS LOS DATOS EN INFLUXDB SIN FILTROS =====")
+        try:
+            # Búsqueda amplia: obtener TODOS los datos del rango sin ningún filtro
+            # Basado en el ejemplo: measurement="esp", topic="esp/energia/E2641D44/state"
+            q_broad_all = f'''
+            from(bucket:"{INFLUXDB_BUCKET}")
+              |> range(start: {start_iso}, stop: {end_iso})
+              |> filter(fn: (r) => r["_measurement"] == "esp")
+              |> keep(columns: ["_time","_field","_value","_measurement","device","topic","host"])
+              |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
+              |> sort(columns: ["_time"])
+            '''
+            print(f"[HISTORY-SMART] Query búsqueda TODOS los datos en InfluxDB (measurement=esp, sin filtros de device/topic):")
+            print(q_broad_all)
+            tables_broad = influx.query_api().query(q_broad_all, org=INFLUXDB_ORG)
+            broad_count = 0
+            for t in tables_broad:
+                for r in t.records:
+                    broad_count += 1
+                    ts_ms = int(r.get_time().timestamp()*1000)
+                    if broad_count <= 10:
+                        print(f"[HISTORY-SMART] Record {broad_count}: time={r.get_time()}, measurement={r.values.get('_measurement')}, device={r.values.get('device')}, topic={r.values.get('topic')}, host={r.values.get('host')}, campos={[k for k in r.values.keys() if k not in ['_measurement','device','topic','host']]}")
+                    # Buscar potencia_activa o potencia_actesp o P
+                    potencia = r.values.get("potencia_activa") or r.values.get("potencia_actesp") or r.values.get("P")
+                    all_rows.append({
+                        "ts": ts_ms,
+                        "vrms": r.values.get("vrms") or r.values.get("V"),
+                        "irms": r.values.get("irms") or r.values.get("I"),
+                        "s_apparent_va": r.values.get("s_apparent_va") or r.values.get("S"),
+                        "potencia_activa": potencia,
+                        "factor_potencia": r.values.get("factor_potencia") or r.values.get("PF"),
+                        "device": r.values.get("device") or device,
+                    })
+            print(f"[HISTORY-SMART] Búsqueda TODOS los datos (measurement=esp): {broad_count} registros encontrados")
+        except Exception as e_broad:
+            print(f"[HISTORY-SMART] Error en búsqueda amplia: {e_broad}")
+            import traceback
+            traceback.print_exc()
+        
+        # Si ya encontramos datos, saltar el resto de búsquedas
+        if len(all_rows) == 0:
+            print(f"[HISTORY-SMART] No se encontraron datos con búsqueda directa, intentando búsquedas con filtros...")
+            # Buscar en todos los device IDs posibles (código original)
+            for device_id in device_ids_to_search:
+                # SIEMPRE filtrar por dispositivo
+                # Telegraf guarda: measurement="esp", tag=device="E2641D44", fields=vrms,irms,etc
+                # También puede haber measurement="telemetry" para tópicos antiguos
+                # Buscar en ambos measurements
+                # Usar los measurements encontrados o fallback
+                if available_measurements:
+                    measurement_filter_q = " or ".join([f'r._measurement == "{m}"' for m in available_measurements])
+                else:
+                    measurement_filter_q = 'r._measurement == "esp" or r._measurement == "telemetry"'
+                
+                # Intentar primero con filtro de device si existe
+                try:
+                    q = f'''
             from(bucket:"{INFLUXDB_BUCKET}")
               |> range(start: {start_iso}, stop: {end_iso})
               |> filter(fn: (r) => {measurement_filter_q})
@@ -762,64 +913,155 @@ def metrics_history_smart():
               |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
               |> sort(columns: ["_time"])
             '''
-            
-            print(f"[HISTORY-SMART] Query InfluxDB para device '{device_id}':")
-            print(q)
-            try:
-                tables = influx.query_api().query(q, org=INFLUXDB_ORG)
-                record_count = 0
-                table_count = 0
-                for t in tables:
-                    table_count += 1
-                    for r in t.records:
-                        record_count += 1
-                        # Timestamp preciso en milisegundos (precisión hora/minuto)
-                        # Este timestamp se usa en el frontend para calcular intervalos exactos
-                        # y así obtener el consumo diario total (energía = integral de potencia)
-                        ts_ms = int(r.get_time().timestamp()*1000)
-                        # Debug: mostrar algunos valores para verificar estructura
-                        if record_count <= 3:
-                            print(f"[HISTORY-SMART] Record {record_count}: time={r.get_time()}, values={r.values}")
-                        all_rows.append({
-                            "ts": ts_ms,  # Timestamp preciso (hora/minuto) para cálculos de energía
-                            "vrms": r.values.get("vrms"),
-                            "irms": r.values.get("irms"),
-                            "s_apparent_va": r.values.get("s_apparent_va"),
-                            "potencia_activa": r.values.get("potencia_activa"),
-                            "factor_potencia": r.values.get("factor_potencia"),
-                            "device": r.values.get("device") or device_id,
-                        })
-                print(f"[HISTORY-SMART] Device '{device_id}': {record_count} registros encontrados en {table_count} tablas")
-                if record_count == 0:
-                    # Intentar query sin pivot para ver qué campos hay
-                    # Usar los measurements encontrados
-                    if available_measurements:
-                        measurement_filter_debug = " or ".join([f'r._measurement == "{m}"' for m in available_measurements])
-                    else:
-                        measurement_filter_debug = 'r._measurement == "esp" or r._measurement == "telemetry"'
                     
-                    q_debug = f'''
+                    print(f"[HISTORY-SMART] Query InfluxDB para device '{device_id}' (con filtro device):")
+                    print(q)
+                    tables = influx.query_api().query(q, org=INFLUXDB_ORG)
+                    record_count = 0
+                    table_count = 0
+                    for t in tables:
+                        table_count += 1
+                        for r in t.records:
+                            record_count += 1
+                            ts_ms = int(r.get_time().timestamp()*1000)
+                            if record_count <= 3:
+                                print(f"[HISTORY-SMART] Record {record_count}: time={r.get_time()}, values={r.values}")
+                            # Buscar potencia_activa o potencia_actesp (dependiendo de cómo se guardó)
+                            potencia = r.values.get("potencia_activa") or r.values.get("potencia_actesp") or r.values.get("P")
+                            all_rows.append({
+                                "ts": ts_ms,
+                                "vrms": r.values.get("vrms") or r.values.get("V"),
+                                "irms": r.values.get("irms") or r.values.get("I"),
+                                "s_apparent_va": r.values.get("s_apparent_va") or r.values.get("S"),
+                                "potencia_activa": potencia,
+                                "factor_potencia": r.values.get("factor_potencia") or r.values.get("PF"),
+                                "device": r.values.get("device") or device_id,
+                            })
+                    print(f"[HISTORY-SMART] Device '{device_id}' (con filtro device): {record_count} registros encontrados")
+                    
+                    # Si no se encontraron datos con filtro de device, intentar sin filtro de device
+                    # (puede que el device tag no esté presente y los datos estén en el topic)
+                    if record_count == 0:
+                        print(f"[HISTORY-SMART] No se encontraron datos con filtro device, intentando sin filtro de device...")
+                        # Buscar por topic si está disponible
+                        q_no_device = f'''
                     from(bucket:"{INFLUXDB_BUCKET}")
                       |> range(start: {start_iso}, stop: {end_iso})
-                      |> filter(fn: (r) => {measurement_filter_debug})
-                      |> filter(fn: (r) => exists r.device)
-                      |> filter(fn: (r) => r.device == "{device_id}")
-                      |> limit(n: 5)
+                      |> filter(fn: (r) => {measurement_filter_q})
+                      |> filter(fn: (r) => r.topic == "esp/energia/{device_id}/state" or r.topic =~ /esp\\/energia\\/.*\\/state/)
+                      |> keep(columns: ["_time","_field","_value","device","topic","host"])
+                      |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
+                      |> sort(columns: ["_time"])
                     '''
-                    print(f"[HISTORY-SMART] Query debug (sin pivot) para device '{device_id}':")
-                    print(q_debug)
-                    try:
-                        tables_debug = influx.query_api().query(q_debug, org=INFLUXDB_ORG)
-                        debug_count = 0
-                        for t in tables_debug:
+                        print(f"[HISTORY-SMART] Query sin filtro device (por topic):")
+                        print(q_no_device)
+                        tables_no_device = influx.query_api().query(q_no_device, org=INFLUXDB_ORG)
+                        for t in tables_no_device:
                             for r in t.records:
-                                debug_count += 1
-                                print(f"[HISTORY-SMART] Debug record {debug_count}: measurement={r.get_measurement()}, field={r.get_field()}, value={r.get_value()}, device={r.values.get('device')}, time={r.get_time()}")
-                        print(f"[HISTORY-SMART] Debug: {debug_count} registros encontrados sin pivot")
-                    except Exception as e_debug:
-                        print(f"[HISTORY-SMART] Error en query debug: {e_debug}")
-            except Exception as e:
-                print(f"[HISTORY-SMART] Error consultando device '{device_id}': {e}")
+                                record_count += 1
+                                ts_ms = int(r.get_time().timestamp()*1000)
+                                if record_count <= 3:
+                                    print(f"[HISTORY-SMART] Record {record_count} (sin device): time={r.get_time()}, values={r.values}")
+                                # Buscar potencia_activa o potencia_actesp
+                                potencia = r.values.get("potencia_activa") or r.values.get("potencia_actesp") or r.values.get("P")
+                                all_rows.append({
+                                    "ts": ts_ms,
+                                    "vrms": r.values.get("vrms") or r.values.get("V"),
+                                    "irms": r.values.get("irms") or r.values.get("I"),
+                                    "s_apparent_va": r.values.get("s_apparent_va") or r.values.get("S"),
+                                    "potencia_activa": potencia,
+                                    "factor_potencia": r.values.get("factor_potencia") or r.values.get("PF"),
+                                    "device": r.values.get("device") or device_id,
+                                })
+                        print(f"[HISTORY-SMART] Device '{device_id}' (sin filtro device): {record_count} registros totales encontrados")
+                    
+                    # Si aún no hay datos, intentar búsqueda más amplia sin filtros de device
+                    if record_count == 0:
+                            # Búsqueda amplia: obtener todos los datos del rango y filtrar después
+                            print(f"[HISTORY-SMART] Intentando búsqueda amplia sin filtros de device/topic...")
+                            q_broad = f'''
+                    from(bucket:"{INFLUXDB_BUCKET}")
+                      |> range(start: {start_iso}, stop: {end_iso})
+                      |> filter(fn: (r) => {measurement_filter_q})
+                      |> keep(columns: ["_time","_field","_value","device","topic","host"])
+                      |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
+                      |> sort(columns: ["_time"])
+                    '''
+                            print(f"[HISTORY-SMART] Query amplia (sin filtros):")
+                            print(q_broad)
+                            try:
+                                tables_broad = influx.query_api().query(q_broad, org=INFLUXDB_ORG)
+                                broad_count = 0
+                                for t in tables_broad:
+                                    for r in t.records:
+                                        broad_count += 1
+                                        # Incluir todos los registros del rango (sin filtrar por device)
+                                        # ya que puede que no haya tag device
+                                        ts_ms = int(r.get_time().timestamp()*1000)
+                                        if broad_count <= 5:
+                                            print(f"[HISTORY-SMART] Record amplio {broad_count}: time={r.get_time()}, device={r.values.get('device')}, topic={r.values.get('topic')}, host={r.values.get('host')}, fields={[k for k in r.values.keys() if k not in ['device','topic','host']]}")
+                                        # Buscar potencia_activa o potencia_actesp
+                                        potencia = r.values.get("potencia_activa") or r.values.get("potencia_actesp") or r.values.get("P")
+                                        all_rows.append({
+                                            "ts": ts_ms,
+                                            "vrms": r.values.get("vrms") or r.values.get("V"),
+                                            "irms": r.values.get("irms") or r.values.get("I"),
+                                            "s_apparent_va": r.values.get("s_apparent_va") or r.values.get("S"),
+                                            "potencia_activa": potencia,
+                                            "factor_potencia": r.values.get("factor_potencia") or r.values.get("PF"),
+                                            "device": r.values.get("device") or device_id,
+                                        })
+                                        record_count += 1
+                                print(f"[HISTORY-SMART] Búsqueda amplia: {broad_count} registros encontrados (todos incluidos)")
+                            except Exception as e_broad:
+                                print(f"[HISTORY-SMART] Error en búsqueda amplia: {e_broad}")
+                                import traceback
+                                traceback.print_exc()
+                except Exception as e:
+                    print(f"[HISTORY-SMART] Error consultando device '{device_id}': {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        # SIEMPRE buscar TODOS los datos en InfluxDB sin filtros si no se encontraron datos
+        # Esto es necesario porque los datos pueden no tener tag device o measurement
+        if len(all_rows) == 0:
+            print(f"[HISTORY-SMART] ===== BUSCANDO TODOS LOS DATOS EN INFLUXDB SIN FILTROS =====")
+            print(f"[HISTORY-SMART] No se encontraron datos con filtros, buscando TODOS los datos en InfluxDB (sin filtros)...")
+            print(f"[HISTORY-SMART] Total de intentos con filtros: {len(device_ids_to_search)} devices, all_rows={len(all_rows)}")
+            try:
+                # Búsqueda amplia: obtener TODOS los datos del rango sin ningún filtro
+                # Sin filtrar por measurement, device, topic, etc.
+                q_broad_all = f'''
+                from(bucket:"{INFLUXDB_BUCKET}")
+                  |> range(start: {start_iso}, stop: {end_iso})
+                  |> keep(columns: ["_time","_field","_value","_measurement","device","topic","host"])
+                  |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
+                  |> sort(columns: ["_time"])
+                '''
+                print(f"[HISTORY-SMART] Query búsqueda TODOS los datos en InfluxDB (sin filtros):")
+                print(q_broad_all)
+                tables_broad = influx.query_api().query(q_broad_all, org=INFLUXDB_ORG)
+                broad_count = 0
+                for t in tables_broad:
+                    for r in t.records:
+                        broad_count += 1
+                        ts_ms = int(r.get_time().timestamp()*1000)
+                        if broad_count <= 10:
+                            print(f"[HISTORY-SMART] Record {broad_count}: time={r.get_time()}, measurement={r.values.get('_measurement')}, device={r.values.get('device')}, topic={r.values.get('topic')}, host={r.values.get('host')}, campos={[k for k in r.values.keys() if k not in ['_measurement','device','topic','host']]}")
+                        # Buscar potencia_activa o potencia_actesp o P
+                        potencia = r.values.get("potencia_activa") or r.values.get("potencia_actesp") or r.values.get("P")
+                        all_rows.append({
+                            "ts": ts_ms,
+                            "vrms": r.values.get("vrms") or r.values.get("V"),
+                            "irms": r.values.get("irms") or r.values.get("I"),
+                            "s_apparent_va": r.values.get("s_apparent_va") or r.values.get("S"),
+                            "potencia_activa": potencia,
+                            "factor_potencia": r.values.get("factor_potencia") or r.values.get("PF"),
+                            "device": r.values.get("device") or device,
+                        })
+                print(f"[HISTORY-SMART] Búsqueda TODOS los datos: {broad_count} registros encontrados")
+            except Exception as e_broad:
+                print(f"[HISTORY-SMART] Error en búsqueda amplia: {e_broad}")
                 import traceback
                 traceback.print_exc()
         
