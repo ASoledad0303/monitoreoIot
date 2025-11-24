@@ -33,14 +33,10 @@ services:
       - "1883:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/init-mosquitto.sh:/mosquitto/init-mosquitto.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
-    entrypoint:
-      [
-        "sh",
-        "-c",
-        "mkdir -p /mosquitto/data && if [ ! -f /mosquitto/data/passwd ]; then mosquitto_passwd -c -b /mosquitto/data/passwd ${MQTT_USER:-mqtt_user} ${MQTT_PASS:-mqtt_password}; fi && exec mosquitto -c /mosquitto/config/mosquitto.conf",
-      ]
+    entrypoint: ["/mosquitto/init-mosquitto.sh"]
     environment:
       MQTT_USER: ${MQTT_USER:-tesis}
       MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
