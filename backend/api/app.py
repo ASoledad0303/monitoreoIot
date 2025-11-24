@@ -25,7 +25,10 @@ import paho.mqtt.client as mqtt
 from flask_sock import Sock  # NUEVO
 from influxdb_client import InfluxDBClient
 import psycopg2
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+# Zona horaria de Paraguay (UTC-3)
+PYT_TIMEZONE = timezone(timedelta(hours=-3))
 
 INFLUXDB_URL   = os.getenv("INFLUXDB_URL")
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
@@ -151,11 +154,20 @@ def _save_to_telemetry_history(device_code: str, voltaje: float = None, corrient
             company_id = device_info[1]
             user_id = device_info[2]
             
-            # Obtener fecha del timestamp (solo la fecha, sin hora)
+            # Convertir timestamp de UTC a horario paraguayo
             if timestamp:
-                fecha = timestamp.date()
+                # Si el timestamp viene sin timezone, asumir que es UTC
+                timestamp_utc = timestamp
+                if timestamp_utc.tzinfo is None:
+                    timestamp_utc = timestamp_utc.replace(tzinfo=timezone.utc)
+                # Convertir de UTC (o cualquier timezone) a horario paraguayo
+                timestamp_pyt = timestamp_utc.astimezone(PYT_TIMEZONE)
+                fecha = timestamp_pyt.date()
+                created_at = timestamp_pyt
             else:
-                fecha = datetime.now(timezone.utc).date()
+                now_pyt = datetime.now(PYT_TIMEZONE)
+                fecha = now_pyt.date()
+                created_at = now_pyt
             
             # Insertar en telemetry_history
             cursor.execute("""
@@ -173,7 +185,7 @@ def _save_to_telemetry_history(device_code: str, voltaje: float = None, corrient
                 None,  # energia_acumulada no se calcula aquí
                 company_id,
                 device_id,
-                timestamp if timestamp else datetime.now(timezone.utc)
+                created_at
             ))
             conn.commit()
             cursor.close()

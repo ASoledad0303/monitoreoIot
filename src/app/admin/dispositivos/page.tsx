@@ -122,6 +122,8 @@ export default function AdminDispositivosPage() {
           }
           // Cargar companies (devices se cargarán cuando se seleccione una company)
           await fetchCompanies();
+          // Asegurar que loading se desactive después de cargar companies
+          setLoading(false);
         } else {
           setError("Error al verificar permisos");
           setLoading(false);
@@ -183,7 +185,7 @@ export default function AdminDispositivosPage() {
 
   // Recargar devices cuando cambia la company seleccionada
   useEffect(() => {
-    if (currentUser?.role === "admin") {
+    if (currentUser && (currentUser.role === "admin" || currentUser.role === "super_admin")) {
       fetchDevices();
     }
   }, [selectedCompany, currentUser?.role]);
