@@ -1,30 +1,53 @@
 version: "3.9"
 
 services:
-  influxdb:
-    image: influxdb:2.7
-    container_name: influxdb
+  #influxdb:
+  #   image: influxdb:2.7
+  #   container_name: influxdb
+  #   ports:
+  #     - "8086:8086"
+  #  environment:
+  #   DOCKER_INFLUXDB_INIT_MODE: ${DOCKER_INFLUXDB_INIT_MODE}
+  #  DOCKER_INFLUXDB_INIT_USERNAME: ${DOCKER_INFLUXDB_INIT_USERNAME}
+  #  DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
+  #  DOCKER_INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
+  #   DOCKER_INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
+  #   DOCKER_INFLUXDB_INIT_RETENTION: ${DOCKER_INFLUXDB_INIT_RETENTION}
+  #   DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
+  #   INFLUXD_HTTP_BIND_ADDRESS: :8086
+  #  volumes:
+  #   - influxdb2-data:/var/lib/influxdb2
+  #   - influxdb2-config:/etc/influxdb2
+  # healthcheck:
+  #   test: ["CMD-SHELL", "influx ping --host-url http://127.0.0.1:8086 >/dev/null 2>&1 || exit 1"]
+  #   interval: 10s
+  #   timeout: 5s
+  #   retries: 60
+  #   start_period: 120s
+  # restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: mypostgres
     ports:
-      - "8086:8086"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
-      DOCKER_INFLUXDB_INIT_MODE: ${DOCKER_INFLUXDB_INIT_MODE}
-      DOCKER_INFLUXDB_INIT_USERNAME: ${DOCKER_INFLUXDB_INIT_USERNAME}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
-      DOCKER_INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
-      DOCKER_INFLUXDB_INIT_RETENTION: ${DOCKER_INFLUXDB_INIT_RETENTION}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
-      INFLUXD_HTTP_BIND_ADDRESS: :8086
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-a.123456}
+      POSTGRES_DB: ${POSTGRES_DB:-tesis_iot_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - influxdb2-data:/var/lib/influxdb2
-      - influxdb2-config:/etc/influxdb2
-    # healthcheck:
-    #   test: ["CMD-SHELL", "influx ping --host-url http://127.0.0.1:8086 >/dev/null 2>&1 || exit 1"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 60
-    #   start_period: 120s
-    # restart: unless-stopped
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tesis_iot_db}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -41,63 +64,67 @@ services:
       MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
     restart: unless-stopped
 
-  telegraf:
-    build:
-      context: ./telegraf
-      dockerfile: Dockerfile
-    container_name: telegraf
-    depends_on:
-      # influxdb:
-      # condition: service_healthy
-      mosquitto:
-        condition: service_started
-    volumes:
-      - ./telegraf:/etc/telegraf:ro
-    environment:
-      INFLUXDB_URL: ${INFLUXDB_URL}
-      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUXDB_ORG: ${INFLUXDB_ORG}
-      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
-      # MQTT Authentication
-      MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
-      # PostgreSQL - usar DATABASE_URL o variables individuales
-      # Ajusta localhost a host.docker.internal para que funcione desde Docker
-      # Si tienes: postgres://postgres:a.123456@localhost:5432/tesis_iot_db
-      # Usa: postgresql://postgres:a.123456@host.docker.internal:5432/tesis_iot_db
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:a.123456@host.docker.internal:5432/tesis_iot_db}
-      # O usar variables individuales
-      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_DB: ${POSTGRES_DB:-tesis_iot_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-a.123456}
-    # Para Linux, usar network_mode: "host" o agregar extra_hosts
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+  # -----------------------------------------------------------------------------
+  # Servicio Telegraf para recopilar y enviar métricas a InfluxDB y/o PostgreSQL
+  # -----------------------------------------------------------------------------
+  # telegraf:
+  #   build:
+  #     context: ./telegraf # Contexto del Docker build
+  #     dockerfile: Dockerfile # Dockerfile a utilizar
+  #   container_name: telegraf # Nombre del contenedor
+  #   depends_on:
+  #     # Dependencia comentada: espera a que InfluxDB esté saludable antes de iniciar
+  #     # influxdb:
+  #     #   condition: service_healthy
+  #     mosquitto:
+  #       condition: service_started # Espera a que Mosquitto haya arrancado
+  #   volumes:
+  #     - ./telegraf:/etc/telegraf:ro # Monta configuración de Telegraf (solo lectura)
+  #   environment:
+  #     INFLUXDB_URL: ${INFLUXDB_URL} # URL de InfluxDB (env)
+  #     INFLUXDB_TOKEN: ${INFLUXDB_TOKEN} # Token de autentificación para InfluxDB
+  #     INFLUXDB_ORG: ${INFLUXDB_ORG} # Organización InfluxDB
+  #     INFLUXDB_BUCKET: ${INFLUXDB_BUCKET} # Bucket InfluxDB
+  #     # Autenticación con MQTT (broker)
+  #     MQTT_USER: ${MQTT_USER:-tesis} # Usuario MQTT (por defecto: 'tesis')
+  #     MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w} # Password MQTT (por defecto: valor fuerte)
+  #     # Opcional: PostgreSQL - se puede utilizar DATABASE_URL o variables individuales
+  #     # NOTA: Para acceso desde Docker usa 'host.docker.internal' en vez de localhost
+  #     # Ejemplo de conexión: postgresql://postgres:a.123456@host.docker.internal:5432/tesis_iot_db
+  #     DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:a.123456@host.docker.internal:5432/tesis_iot_db}
+  #     POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal} # Host base de datos PostgreSQL
+  #     POSTGRES_PORT: ${POSTGRES_PORT:-5432} # Puerto base de datos PostgreSQL
+  #     POSTGRES_DB: ${POSTGRES_DB:-tesis_iot_db} # Nombre de la base de datos
+  #     POSTGRES_USER: ${POSTGRES_USER:-postgres} # Usuario PostgreSQL
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-a.123456} # Password PostgreSQL
+  #   # Para Linux: es necesario configurar esto o usar network_mode: "host"
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway" # Soporta redirección de host local en Docker Linux
+  #   restart: unless-stopped # Reinicia el contenedor salvo detención manual
 
-  emulator:
-    image: python:3.11-alpine
-    container_name: esp-emulator
-    depends_on:
-      mosquitto:
-        condition: service_started
-    command:
-      [
-        "sh",
-        "-c",
-        "pip install --no-cache-dir paho-mqtt && python /app/emulator.py",
-      ]
-    environment:
-      MQTT_BROKER: mosquitto
-      MQTT_PORT: 1883
-      MQTT_BASE: ${MQTT_BASE:-tesis/iot/esp32}
-      MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
-    volumes:
-      - ./emulator.py:/app/emulator.py:ro
-    restart: unless-stopped
+  # -----------------------------------------------------------------------------
+  # Servicio Emulator: simula un ESP enviando mensajes MQTT cada X segundos
+  # -----------------------------------------------------------------------------
+  # emulator:
+  #   image: python:3.11-alpine # Imagen base de Python liviana
+  #   container_name: esp-emulator # Nombre del contenedor
+  #   depends_on:
+  #     mosquitto:
+  #       condition: service_started # Espera a que el broker MQTT esté iniciado
+  #   command: [
+  #       "sh",
+  #       "-c",
+  #       "pip install --no-cache-dir paho-mqtt && python /app/emulator.py",
+  #     ] # Instala librería MQTT y ejecuta el emulador Python
+  #   environment:
+  #     MQTT_BROKER: mosquitto # Dirección del broker MQTT (nombre del servicio)
+  #     MQTT_PORT: 1883 # Puerto por defecto de MQTT
+  #     MQTT_BASE: ${MQTT_BASE:-tesis/iot/esp32} # Base Topic MQTT para los mensajes
+  #     MQTT_USER: ${MQTT_USER:-tesis} # Usuario MQTT (por defecto: 'tesis')
+  #     MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w} # Password MQTT (por defecto fuerte)
+  #   volumes:
+  #     - ./emulator.py:/app/emulator.py:ro # Monta el script Python de emulación (solo lectura)
+  #   restart: unless-stopped # Reinicia salvo detención manual
 
   backend:
     build:
@@ -105,6 +132,8 @@ services:
       dockerfile: Dockerfile
     container_name: iot-backend
     depends_on:
+      postgres:
+        condition: service_healthy
       mosquitto:
         condition: service_started
       # influxdb:
@@ -128,9 +157,9 @@ services:
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
 
       # PostgreSQL para consultas históricas (>30 días)
-      # Usar mypostgres si está en la misma red, sino host.docker.internal
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-a.123456}@mypostgres:5432/tesis_iot_db}
-      POSTGRES_HOST: ${POSTGRES_HOST:-mypostgres}
+      # Usar el nombre del servicio 'postgres' para conexión dentro de Docker
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-a.123456}@postgres:5432/${POSTGRES_DB:-tesis_iot_db}}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-tesis_iot_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -161,6 +190,8 @@ services:
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:5000/ws}
     container_name: iot-frontend
     depends_on:
+      postgres:
+        condition: service_healthy
       backend:
         condition: service_started
     environment:
@@ -170,6 +201,14 @@ services:
       # URLs del backend (para referencia, aunque el código usa NEXT_PUBLIC_*)
       BACKEND_URL: ${BACKEND_URL:-http://backend:5000}
       BACKEND_PORT: ${API_PORT:-5000}
+      # PostgreSQL - para las API routes de Next.js que se ejecutan en el servidor
+      # Usar el nombre del servicio 'postgres' para conexión dentro de Docker
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-a.123456}@postgres:5432/${POSTGRES_DB:-tesis_iot_db}}
+      PGHOST: ${POSTGRES_HOST:-postgres}
+      PGPORT: ${POSTGRES_PORT:-5432}
+      PGDATABASE: ${POSTGRES_DB:-tesis_iot_db}
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-a.123456}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     restart: unless-stopped
@@ -177,5 +216,6 @@ services:
 volumes:
   influxdb2-data:
   influxdb2-config:
+  postgres-data:
   mosquitto-data:
   mosquitto-log:
