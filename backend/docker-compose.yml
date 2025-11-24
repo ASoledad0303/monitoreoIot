@@ -207,6 +207,12 @@ services:
       PGDATABASE: ${POSTGRES_DB:-tesis_iot_db}
       PGUSER: ${POSTGRES_USER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:-a.123456}
+      # SMTP - Configuración de correo electrónico (Gmail)
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-unidatesis@gmail.com}
+      SMTP_PASS: ${SMTP_PASS:-fahi snuv ymnn haez}
+      MAIL_FROM: ${MAIL_FROM:-unidatesis@gmail.com}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     restart: unless-stopped
