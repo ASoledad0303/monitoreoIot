@@ -32,11 +32,11 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/init-mosquitto.sh:/mosquitto/init-mosquitto.sh:ro
+      #   - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      #   - ./mosquitto/init-mosquitto.sh:/mosquitto/init-mosquitto.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
-    entrypoint: ["/mosquitto/init-mosquitto.sh"]
+    # entrypoint: ["/mosquitto/init-mosquitto.sh"]
     environment:
       MQTT_USER: ${MQTT_USER:-tesis}
       MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
@@ -84,12 +84,12 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    #  command:
-    #   [
-    #      "sh",
-    #      "-c",
-    #      "pip install --no-cache-dir paho-mqtt && python /app/emulator.py",
-    #    ]
+    command:
+      [
+        "sh",
+        "-c",
+        "pip install --no-cache-dir paho-mqtt && python /app/emulator.py",
+      ]
     environment:
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
