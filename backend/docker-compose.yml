@@ -34,10 +34,11 @@ services:
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
+      - ./mosquitto/passwords.txt:/mosquitto/config/passwords.txt:ro
       - mosquitto-log:/mosquitto/log
     environment:
       MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
+      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
     restart: unless-stopped
 
   telegraf:
@@ -59,7 +60,7 @@ services:
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
       # MQTT Authentication
       MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
+      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
       # PostgreSQL - usar DATABASE_URL o variables individuales
       # Ajusta localhost a host.docker.internal para que funcione desde Docker
       # Si tienes: postgres://postgres:a.123456@localhost:5432/tesis_iot_db
@@ -93,7 +94,7 @@ services:
       MQTT_PORT: 1883
       MQTT_BASE: ${MQTT_BASE:-tesis/iot/esp32}
       MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
+      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
     volumes:
       - ./emulator.py:/app/emulator.py:ro
     restart: unless-stopped
@@ -118,7 +119,7 @@ services:
       MQTT_PORT: 1883
       MQTT_BASE: ${MQTT_BASE:-tesis/iot/esp32}
       MQTT_USER: ${MQTT_USER:-tesis}
-      MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
+      MQTT_PASS: ${MQTT_PASS:-sE2wBB29123w}
 
       # (Opcional) InfluxDB si luego querés consultas históricas desde la API
       INFLUXDB_URL: ${INFLUXDB_URL}

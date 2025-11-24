@@ -72,7 +72,7 @@ def get_postgres_connection():
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT   = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER   = os.getenv("MQTT_USER", "tesis")
-MQTT_PASS   = os.getenv("MQTT_PASS", "@E2wBB29|23w")
+MQTT_PASS   = os.getenv("MQTT_PASS", "sE2wBB29123w")
 MQTT_BASE   = os.getenv("MQTT_BASE", "tesis/iot/esp32")
 
 # Nuevo formato: esp/energia/{device_id}/state
