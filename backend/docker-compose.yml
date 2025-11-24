@@ -39,7 +39,7 @@ services:
       [
         "sh",
         "-c",
-        "if [ ! -f /mosquitto/data/passwd ]; then mosquitto_passwd -c -b /mosquitto/data/passwd ${MQTT_USER:-mqtt_user} ${MQTT_PASS:-mqtt_password}; fi && exec mosquitto -c /mosquitto/config/mosquitto.conf",
+        "mkdir -p /mosquitto/data && if [ ! -f /mosquitto/data/passwd ]; then mosquitto_passwd -c -b /mosquitto/data/passwd ${MQTT_USER:-mqtt_user} ${MQTT_PASS:-mqtt_password}; fi && exec mosquitto -c /mosquitto/config/mosquitto.conf",
       ]
     environment:
       MQTT_USER: ${MQTT_USER:-tesis}

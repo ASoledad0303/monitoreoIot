@@ -199,7 +199,6 @@ def main():
     try:
         # Leer todas las líneas disponibles
         import select
-        import sys
         
         # Para Windows/Docker, leer directamente de stdin
         for line in sys.stdin:
