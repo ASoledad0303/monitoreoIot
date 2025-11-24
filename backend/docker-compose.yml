@@ -32,11 +32,9 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      #   - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      #   - ./mosquitto/init-mosquitto.sh:/mosquitto/init-mosquitto.sh:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
-    # entrypoint: ["/mosquitto/init-mosquitto.sh"]
     environment:
       MQTT_USER: ${MQTT_USER:-tesis}
       MQTT_PASS: ${MQTT_PASS:-@E2wBB29|23w}
