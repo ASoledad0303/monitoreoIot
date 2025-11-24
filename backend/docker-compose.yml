@@ -158,7 +158,7 @@ services:
 
       # PostgreSQL para consultas históricas (>30 días)
       # Usar el nombre del servicio 'postgres' para conexión dentro de Docker
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-a.123456}@postgres:5432/${POSTGRES_DB:-tesis_iot_db}}
+      # Usar variables individuales (el código construye DATABASE_URL si es necesario)
       POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-tesis_iot_db}
@@ -171,31 +171,6 @@ services:
       - "${API_PORT:-5000}:5000"
     restart: unless-stopped
 
-  # Servicio temporal para ejecutar scripts de base de datos
-  # Uso: docker-compose run --rm db-init
-  db-init:
-    image: node:20-alpine
-    container_name: db-init-temp
-    depends_on:
-      postgres:
-        condition: service_healthy
-    working_dir: /app
-    volumes:
-      - ../scripts:/app/scripts:ro
-      - ../package.json:/app/package.json:ro
-      - ../package-lock.json:/app/package-lock.json:ro
-    environment:
-      # PostgreSQL - usar el nombre del servicio 'postgres' para conexión dentro de Docker
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-a.123456}@postgres:5432/${POSTGRES_DB:-tesis_iot_db}}
-      PGHOST: ${POSTGRES_HOST:-postgres}
-      PGPORT: ${POSTGRES_PORT:-5432}
-      PGDATABASE: ${POSTGRES_DB:-tesis_iot_db}
-      PGUSER: ${POSTGRES_USER:-postgres}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-a.123456}
-    command: sh -c "npm install && node scripts/init-db.js"
-    profiles:
-      - tools # Solo se ejecuta cuando se especifica el perfil: docker-compose --profile tools run --rm db-init
-
   frontend:
     build:
       context: ..
@@ -204,15 +179,13 @@ services:
         # URLs para build time (NEXT_PUBLIC_* se inyectan en el código del cliente)
         # ⚠️ IMPORTANTE: Estas URLs se usan desde el NAVEGADOR del usuario, NO desde dentro del contenedor
         #
-        # ¿Por qué localhost y no "backend"?
+        # ¿Por qué usar la IP pública y no "backend"?
         # - El código JavaScript se ejecuta en el navegador del usuario
-        # - El navegador accede al frontend en localhost:3000 y hace requests a localhost:5000
+        # - El navegador accede al frontend y hace requests al backend
         # - Desde el navegador, "backend" no existe (solo existe en la red interna de Docker)
-        # - El puerto 5000 está expuesto del contenedor al host, por lo que localhost:5000 funciona
-        #
-        # Si necesitas acceder desde otro dispositivo, usa la IP de tu máquina en lugar de localhost
-        NEXT_PUBLIC_FLASK_API_URL: ${NEXT_PUBLIC_FLASK_API_URL:-http://localhost:5000}
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:5000/ws}
+        # - Usar la IP pública o dominio para acceso desde cualquier lugar
+        NEXT_PUBLIC_FLASK_API_URL: ${NEXT_PUBLIC_FLASK_API_URL:-http://138.197.237.23:5000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://138.197.237.23:5000/ws}
     container_name: iot-frontend
     depends_on:
       postgres:
@@ -228,7 +201,7 @@ services:
       BACKEND_PORT: ${API_PORT:-5000}
       # PostgreSQL - para las API routes de Next.js que se ejecutan en el servidor
       # Usar el nombre del servicio 'postgres' para conexión dentro de Docker
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-a.123456}@postgres:5432/${POSTGRES_DB:-tesis_iot_db}}
+      # Usar variables individuales (el código en src/lib/db.ts las usa correctamente)
       PGHOST: ${POSTGRES_HOST:-postgres}
       PGPORT: ${POSTGRES_PORT:-5432}
       PGDATABASE: ${POSTGRES_DB:-tesis_iot_db}
