@@ -62,15 +62,17 @@ function LoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: emailFor2FA, code: code2FA }),
+        credentials: "include", // Asegurar que las cookies se incluyan
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Código inválido");
 
+      // Usar window.location.href en lugar de router.push para forzar recarga
+      // Esto asegura que la cookie esté disponible cuando el middleware se ejecute
       const redirect = searchParams.get("redirect") || "/";
-      router.push(redirect);
+      window.location.href = redirect;
     } catch (err: any) {
       setError(err.message || "Código inválido o vencido");
-    } finally {
       setLoading(false);
     }
   };

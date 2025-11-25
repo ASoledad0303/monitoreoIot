@@ -220,14 +220,14 @@ services:
   email-worker:
     image: node:20-alpine
     container_name: iot-email-worker
-    depends_on:
-      postgres:
-        condition: service_healthy
+    # depends_on:
+    #    postgres:
+    #     condition: service_healthy
     working_dir: /app
     volumes:
       - ../scripts:/app/scripts:ro
       - ../package.json:/app/package.json:ro
-      - ../package-lock.json:/app/package-lock.json:ro
+      - ../package-lock.json:/app/package-lock.json.host:ro
       - email-worker-node-modules:/app/node_modules
     environment:
       # PostgreSQL - para conexión a la base de datos
@@ -242,7 +242,7 @@ services:
       SMTP_USER: ${SMTP_USER:-unidatesis@gmail.com}
       SMTP_PASS: ${SMTP_PASS:-fahi snuv ymnn haez}
       MAIL_FROM: ${MAIL_FROM:-unidatesis@gmail.com}
-    command: sh -c "npm install && node scripts/email-worker.js"
+    command: sh -c "if [ -f /app/package-lock.json.host ]; then cp /app/package-lock.json.host /app/package-lock.json; fi && npm install && node scripts/email-worker.js"
     restart: unless-stopped
 
 volumes:
