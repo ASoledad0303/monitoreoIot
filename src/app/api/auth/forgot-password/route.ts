@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/db';
-import { sendMail, renderResetEmail } from '@/lib/mailer';
+import { queueEmail, renderResetEmail } from '@/lib/mailer';
 
 const Schema = z.object({ email: z.string().email() });
 
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       [user.id, code]
     );
 
-    await sendMail(email, 'Código para restablecer contraseña', renderResetEmail(code));
+    await queueEmail(email, 'Código para restablecer contraseña', renderResetEmail(code));
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: 'Error de servidor' }, { status: 500 });
