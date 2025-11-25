@@ -102,6 +102,38 @@ async function createTables() {
     );
   `);
 
+  // Tabla de cola de emails
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_queue (
+      id SERIAL PRIMARY KEY,
+      to_email VARCHAR(160) NOT NULL,
+      subject VARCHAR(255) NOT NULL,
+      html TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending' | 'processing' | 'sent' | 'failed'
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      max_retries INTEGER NOT NULL DEFAULT 3,
+      last_error TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMP,
+      sent_at TIMESTAMP
+    );
+  `);
+
+  // Índices para la cola de emails
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_email_queue_status_created 
+      ON email_queue(status, created_at);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_email_queue_retry 
+      ON email_queue(status, retry_count, created_at) 
+      WHERE status IN ('pending', 'failed');
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
+
   // Tabla de alertas
   await pool.query(`
     CREATE TABLE IF NOT EXISTS alerts (
