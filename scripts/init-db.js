@@ -144,9 +144,51 @@ async function createTables() {
       mensaje TEXT NOT NULL,
       valor VARCHAR(50),
       dispositivo VARCHAR(100),
+      company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+      device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
+      telegram_sent BOOLEAN DEFAULT false,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
+
+  // Agregar campos opcionales si no existen (para migración)
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe o si companies no existe
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe o si devices no existe
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS telegram_sent BOOLEAN DEFAULT false;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
+
+  // Crear índice para mejorar rendimiento de consultas
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_alerts_telegram_sent 
+      ON alerts(telegram_sent) 
+      WHERE telegram_sent = false;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
 
   // Tabla de historial de telemetría (para reportes)
   await pool.query(`

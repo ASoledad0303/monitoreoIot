@@ -246,6 +246,31 @@ services:
     command: sh -c "if [ -f /app/package-lock.json.host ]; then cp /app/package-lock.json.host /app/package-lock.json; fi && npm install && node scripts/email-worker.js"
     restart: unless-stopped
 
+  telegram-bot:
+    image: node:20-alpine
+    container_name: iot-telegram-bot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - ../scripts:/app/scripts:ro
+      - ../package.json:/app/package.json:ro
+      - ../package-lock.json:/app/package-lock.json.host:ro
+      - telegram-bot-node-modules:/app/node_modules
+    environment:
+      # PostgreSQL - para conexión a la base de datos
+      PGHOST: ${POSTGRES_HOST:-138.197.237.23}
+      PGPORT: ${POSTGRES_PORT:-5432}
+      PGDATABASE: ${POSTGRES_DB:-tesis_iot_db}
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-a.123456}
+      # Telegram - Configuración del bot
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-8532001920:AAGc4_W_iu_ERdof8UgzXJnMzbS3BCtgWwc}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:--5093734746}
+    command: sh -c "if [ -f /app/package-lock.json.host ]; then cp /app/package-lock.json.host /app/package-lock.json; fi && npm install && node scripts/telegram-bot.js"
+    restart: unless-stopped
+
 volumes:
   influxdb2-data:
   influxdb2-config:
@@ -253,3 +278,4 @@ volumes:
   mosquitto-data:
   mosquitto-log:
   email-worker-node-modules:
+  telegram-bot-node-modules:
