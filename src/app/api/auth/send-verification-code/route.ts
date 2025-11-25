@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
     await queueEmail(email, 'Verifica tu correo', renderVerificationEmail(code));
     return NextResponse.json({ ok: true });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Error de servidor' }, { status: 500 });
   }
 }

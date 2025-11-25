@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         ? 'Cuenta creada como super administrador (primer usuario del sistema)' 
         : 'Cuenta creada exitosamente'
     });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Error de servidor' }, { status: 500 });
   }
 }

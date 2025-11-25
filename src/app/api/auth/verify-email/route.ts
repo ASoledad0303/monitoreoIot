@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     await query('UPDATE user_tokens SET used = true WHERE id = $1', [t.id]);
 
     return NextResponse.json({ ok: true });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Error de servidor' }, { status: 500 });
   }
 }
