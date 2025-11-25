@@ -19,20 +19,58 @@ const CompanySchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    // Verificar que el usuario es administrador
-    const adminCheck = requireAdmin(req);
-    if (adminCheck) return adminCheck;
+    const user = getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
 
     if (!COMPANY_CONFIG.ENABLED) {
+      console.warn("[companies GET] COMPANY_ENABLED está en false. Habilítalo en .env.local con COMPANY_ENABLED=true");
       return NextResponse.json(
-        { error: "La funcionalidad de companies está deshabilitada" },
+        { 
+          error: "La funcionalidad de companies está deshabilitada",
+          hint: "Habilita COMPANY_ENABLED=true en las variables de entorno"
+        },
         { status: 403 }
       );
     }
 
-    const user = getAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    // Verificar que el usuario es administrador o tiene una company asignada
+    const isAdmin = user.role === ROLES.ADMIN || user.role === ROLES.SUPER_ADMIN;
+    
+    if (!isAdmin) {
+      // Si no es admin, verificar si tiene una company asignada
+      const userCompany = await query<{ company_id: number | null }>(
+        "SELECT company_id FROM users WHERE id = $1",
+        [user.sub]
+      );
+      
+      if (!userCompany.rows[0]?.company_id) {
+        return NextResponse.json(
+          { error: "No tienes permisos para acceder a este recurso" },
+          { status: 403 }
+        );
+      }
+      
+      // Usuario regular con company asignada: devolver solo su company
+      const result = await query<{
+        id: number;
+        name: string;
+        code: string | null;
+        email: string | null;
+        phone: string | null;
+        address: string | null;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `SELECT id, name, code, email, phone, address, created_at, updated_at
+         FROM companies
+         WHERE id = $1
+         ORDER BY name ASC`,
+        [userCompany.rows[0].company_id]
+      );
+      
+      return NextResponse.json({ companies: result.rows });
     }
 
     let sql = `SELECT id, name, code, email, phone, address, created_at, updated_at

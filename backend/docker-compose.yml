@@ -196,6 +196,7 @@ services:
       # Puerto del frontend
       PORT: ${FRONTEND_PORT:-3000}
       NODE_ENV: production
+      COMPANY_ENABLED: true
       # URLs del backend (para referencia, aunque el código usa NEXT_PUBLIC_*)
       BACKEND_URL: ${BACKEND_URL:-http://backend:5000}
       BACKEND_PORT: ${API_PORT:-5000}
