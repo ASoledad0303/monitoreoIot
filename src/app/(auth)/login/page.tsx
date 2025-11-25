@@ -58,19 +58,32 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/verify-2fa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailFor2FA, code: code2FA }),
-        credentials: "include", // Asegurar que las cookies se incluyan
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Código inválido");
-
-      // Usar window.location.href en lugar de router.push para forzar recarga
-      // Esto asegura que la cookie esté disponible cuando el middleware se ejecute
       const redirect = searchParams.get("redirect") || "/";
-      window.location.href = redirect;
+      const res = await fetch(
+        `/api/auth/verify-2fa?redirect=${encodeURIComponent(redirect)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: emailFor2FA, code: code2FA }),
+          credentials: "include", // Asegurar que las cookies se incluyan
+          redirect: "manual", // Manejar redirects manualmente
+        }
+      );
+
+      // Si es un redirect (status 307), el navegador lo seguirá automáticamente
+      // pero necesitamos hacer el redirect manualmente desde el cliente
+      if (res.status === 307 || res.status === 302 || res.redirected) {
+        const location = res.headers.get("location") || redirect;
+        // El navegador seguirá automáticamente, pero por si acaso hacemos redirect manual
+        window.location.href = location;
+        return; // No hacer nada más, el navegador navegará
+      }
+
+      // Si hay un error, leer el JSON
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data?.error || "Código inválido");
+      }
     } catch (err: any) {
       setError(err.message || "Código inválido o vencido");
       setLoading(false);
