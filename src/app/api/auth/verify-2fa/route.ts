@@ -125,12 +125,14 @@ export async function POST(req: Request) {
       role: user.role || "user", // Default a 'user' si no tiene role
     });
 
-    // Crear respuesta de redirect HTTP
-    // El navegador seguirá automáticamente el redirect con la cookie ya establecida
-    const redirectUrl = new URL(redirectTo, req.url);
-    const resp = NextResponse.redirect(redirectUrl, { status: 307 });
+    // Devolver JSON con la cookie establecida
+    // El cliente hará el redirect después de asegurar que la cookie esté disponible
+    const resp = NextResponse.json({
+      ok: true,
+      redirect: redirectTo,
+    });
 
-    // Establecer cookie antes del redirect
+    // Establecer cookie
     resp.cookies.set("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
