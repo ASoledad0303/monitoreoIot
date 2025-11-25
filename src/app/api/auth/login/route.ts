@@ -74,12 +74,16 @@ export async function POST(req: Request) {
       [user.id, code2FA]
     );
 
-    // Enviar código 2FA por correo
-    await sendMail(
+    // Enviar código 2FA por correo (no esperar, para evitar timeouts)
+    // El email se envía de forma asíncrona sin bloquear la respuesta
+    sendMail(
       email,
       "Código de verificación de dos factores",
       render2FAEmail(code2FA)
-    );
+    ).catch((err) => {
+      console.error("[login] Error enviando email 2FA:", err);
+      // No fallar el login si el email falla
+    });
 
     // Retornar respuesta indicando que se requiere 2FA (sin crear token de sesión)
     return NextResponse.json({

@@ -19,6 +19,8 @@ export async function sendMail(to: string, subject: string, html: string) {
     port: smtpPort,
     secure: smtpPort === 465, // true para 465, false para otros puertos
     auth: { user: smtpUser, pass: smtpPass },
+    connectionTimeout: 10000, // 10 segundos timeout para conexión
+    socketTimeout: 10000, // 10 segundos timeout para operaciones
     tls: {
       // No rechazar conexiones no autorizadas (útil para desarrollo)
       rejectUnauthorized: false,
