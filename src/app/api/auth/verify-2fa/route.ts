@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query } from "@/lib/db";
 import { signToken } from "@/lib/jwt";
 import { COMPANY_CONFIG, ROLES } from "@/lib/config";
+import { getAuthCookieOptions } from "@/lib/cookies";
 
 const Schema = z.object({
   email: z.string().email(),
@@ -132,14 +133,8 @@ export async function POST(req: Request) {
       redirect: redirectTo,
     });
 
-    // Establecer cookie
-    resp.cookies.set("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 días
-    });
+    // Establecer cookie con configuración que funciona en HTTP y HTTPS
+    resp.cookies.set("auth_token", token, getAuthCookieOptions(req));
 
     return resp;
   } catch (e) {
