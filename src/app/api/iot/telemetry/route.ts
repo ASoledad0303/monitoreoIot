@@ -15,7 +15,7 @@ const IoTTelemetrySchema = z.object({
 /**
  * Endpoint público para dispositivos IoT (ESP32)
  * POST /api/iot/telemetry
- * 
+ *
  * Autenticación: API key en header X-API-Key o en el body
  * Formato de datos: JSON del ESP32
  */
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const parsed = IoTTelemetrySchema.safeParse(body);
-    
+
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Datos inválidos", details: parsed.error.issues },
@@ -38,7 +38,10 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "API key requerida. Envíala en el header X-API-Key o en el body como api_key" },
+        {
+          error:
+            "API key requerida. Envíala en el header X-API-Key o en el body como api_key",
+        },
         { status: 401 }
       );
     }
@@ -205,13 +208,17 @@ async function checkAndGenerateAlerts(data: {
     if (voltaje > umbrales.voltaje_max) {
       alerts.push({
         tipo: "Alta tensión",
-        mensaje: `Voltaje excede el umbral máximo (${umbrales.voltaje_max}V). Valor actual: ${voltaje.toFixed(2)}V`,
+        mensaje: `Voltaje excede el umbral máximo (${
+          umbrales.voltaje_max
+        }V). Valor actual: ${voltaje.toFixed(2)}V`,
         valor: `${voltaje.toFixed(2)}V`,
       });
     } else if (voltaje < umbrales.voltaje_min) {
       alerts.push({
         tipo: "Baja tensión",
-        mensaje: `Voltaje está por debajo del umbral mínimo (${umbrales.voltaje_min}V). Valor actual: ${voltaje.toFixed(2)}V`,
+        mensaje: `Voltaje está por debajo del umbral mínimo (${
+          umbrales.voltaje_min
+        }V). Valor actual: ${voltaje.toFixed(2)}V`,
         valor: `${voltaje.toFixed(2)}V`,
       });
     }
@@ -222,28 +229,44 @@ async function checkAndGenerateAlerts(data: {
     if (potencia > umbrales.potencia_max) {
       alerts.push({
         tipo: "Alto consumo",
-        mensaje: `Potencia excede el umbral máximo (${umbrales.potencia_max}W). Valor actual: ${potencia.toFixed(2)}W`,
+        mensaje: `Potencia excede el umbral máximo (${
+          umbrales.potencia_max
+        }W). Valor actual: ${potencia.toFixed(2)}W`,
         valor: `${potencia.toFixed(2)}W`,
       });
     }
   }
 
-  // Crear alertas en la base de datos
+  // Crear alertas en la base de datos solo si no existe una alerta del mismo tipo en los últimos 20 segundos
   for (const alert of alerts) {
-    await query(
-      `INSERT INTO alerts (user_id, fecha, tipo, mensaje, valor, dispositivo, company_id, device_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        user_id,
-        fecha,
-        alert.tipo,
-        alert.mensaje,
-        alert.valor,
-        deviceName || null,
-        company_id,
-        device_id,
-      ]
+    // Verificar si ya existe una alerta del mismo tipo para este dispositivo en los últimos 20 segundos
+    const existingAlert = await query<{ id: number }>(
+      `SELECT id FROM alerts 
+       WHERE tipo = $1 
+       AND device_id = $2 
+       AND company_id = $3
+       AND created_at > NOW() - INTERVAL '20 seconds'
+       LIMIT 1`,
+      [alert.tipo, device_id, company_id]
     );
+
+    // Solo crear la alerta si no existe una reciente (últimos 20 segundos)
+    if (existingAlert.rows.length === 0) {
+      await query(
+        `INSERT INTO alerts (user_id, fecha, tipo, mensaje, valor, dispositivo, company_id, device_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          user_id,
+          fecha,
+          alert.tipo,
+          alert.mensaje,
+          alert.valor,
+          deviceName || null,
+          company_id,
+          device_id,
+        ]
+      );
+    }
+    // Si ya existe una alerta reciente, no crear otra (evita spam de alertas)
   }
 }
-

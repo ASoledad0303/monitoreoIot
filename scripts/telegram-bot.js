@@ -28,6 +28,9 @@ const pool = new Pool({
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
+// Rate limiting: tiempo mínimo entre mensajes (en segundos)
+const MIN_INTERVAL_BETWEEN_MESSAGES = parseInt(process.env.TELEGRAM_MIN_INTERVAL || '30', 10);
+
 if (!TELEGRAM_BOT_TOKEN) {
   console.error('[Telegram Bot] ERROR: TELEGRAM_BOT_TOKEN no está configurado');
   process.exit(1);
@@ -38,8 +41,12 @@ if (!TELEGRAM_CHAT_ID) {
   process.exit(1);
 }
 
+// Control de rate limiting
+let lastMessageTime = 0;
+let pendingAlerts = [];
+
 /**
- * Envía un mensaje a Telegram
+ * Envía un mensaje a Telegram (sin HTML, solo texto plano)
  */
 function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
@@ -47,7 +54,7 @@ function sendTelegramMessage(text) {
     const data = JSON.stringify({
       chat_id: TELEGRAM_CHAT_ID,
       text: text,
-      parse_mode: 'HTML',
+      // Sin parse_mode para texto plano
     });
 
     const options = {
@@ -89,7 +96,7 @@ function sendTelegramMessage(text) {
 }
 
 /**
- * Formatea el mensaje de alerta para Telegram
+ * Formatea el mensaje de alerta para Telegram (sin HTML, solo texto plano)
  */
 function formatAlertMessage(alert) {
   const emoji = {
@@ -101,20 +108,20 @@ function formatAlertMessage(alert) {
 
   const tipoEmoji = emoji[alert.tipo] || '🔔';
   
-  // Formato del mensaje según el ejemplo del usuario
-  let mensaje = `${tipoEmoji} <b>Ocurrió un evento</b>\n\n`;
+  // Formato del mensaje sin HTML, solo texto plano
+  let mensaje = `${tipoEmoji} Ocurrió un evento\n\n`;
   
   // Formato específico según el tipo de alerta
   if (alert.tipo === 'Alta tensión' || alert.tipo === 'Baja tensión') {
-    mensaje += `<b>${alert.tipo}:</b> ${alert.valor || 'N/A'}\n`;
+    mensaje += `${alert.tipo}: ${alert.valor || 'N/A'}\n`;
   } else if (alert.tipo === 'Corriente elevada') {
-    mensaje += `<b>Corriente elevada:</b> ${alert.valor || 'N/A'}\n`;
+    mensaje += `Corriente elevada: ${alert.valor || 'N/A'}\n`;
   } else {
-    mensaje += `<b>${alert.tipo}:</b> ${alert.valor || 'N/A'}\n`;
+    mensaje += `${alert.tipo}: ${alert.valor || 'N/A'}\n`;
   }
   
   if (alert.dispositivo) {
-    mensaje += `\n📱 <b>Dispositivo:</b> ${alert.dispositivo}`;
+    mensaje += `\n📱 Dispositivo: ${alert.dispositivo}`;
   }
   
   if (alert.mensaje && alert.mensaje !== alert.valor) {
@@ -132,7 +139,7 @@ function formatAlertMessage(alert) {
 }
 
 /**
- * Procesa alertas pendientes
+ * Procesa alertas pendientes con rate limiting
  */
 async function processAlerts() {
   try {
@@ -142,31 +149,50 @@ async function processAlerts() {
       FROM alerts
       WHERE telegram_sent = false OR telegram_sent IS NULL
       ORDER BY created_at ASC
-      LIMIT 10
+      LIMIT 50
     `);
 
     if (result.rows.length === 0) {
       return;
     }
 
-    console.log(`[Telegram Bot] Procesando ${result.rows.length} alerta(s)...`);
+    const now = Date.now();
+    const timeSinceLastMessage = (now - lastMessageTime) / 1000; // en segundos
 
-    for (const alert of result.rows) {
-      try {
-        const message = formatAlertMessage(alert);
-        await sendTelegramMessage(message);
-        
-        // Marcar como enviada
-        await pool.query(
-          'UPDATE alerts SET telegram_sent = true WHERE id = $1',
-          [alert.id]
-        );
-        
-        console.log(`[Telegram Bot] ✅ Alerta ${alert.id} enviada: ${alert.tipo}`);
-      } catch (error) {
-        console.error(`[Telegram Bot] ❌ Error enviando alerta ${alert.id}:`, error.message);
-        // No marcar como enviada si falló, para reintentar después
+    // Si no ha pasado el tiempo mínimo desde el último mensaje, esperar
+    if (timeSinceLastMessage < MIN_INTERVAL_BETWEEN_MESSAGES) {
+      const waitTime = Math.ceil(MIN_INTERVAL_BETWEEN_MESSAGES - timeSinceLastMessage);
+      console.log(`[Telegram Bot] ⏳ Rate limit: esperando ${waitTime} segundo(s) antes del próximo envío...`);
+      return;
+    }
+
+    // Procesar solo la primera alerta para respetar el rate limit
+    const alert = result.rows[0];
+    
+    try {
+      const message = formatAlertMessage(alert);
+      await sendTelegramMessage(message);
+      
+      // Actualizar tiempo del último mensaje
+      lastMessageTime = Date.now();
+      
+      // Marcar como enviada
+      await pool.query(
+        'UPDATE alerts SET telegram_sent = true WHERE id = $1',
+        [alert.id]
+      );
+      
+      console.log(`[Telegram Bot] ✅ Alerta ${alert.id} enviada: ${alert.tipo}`);
+      
+      // Si hay más alertas pendientes, informar
+      if (result.rows.length > 1) {
+        console.log(`[Telegram Bot] 📋 ${result.rows.length - 1} alerta(s) pendiente(s) - se procesarán en ${MIN_INTERVAL_BETWEEN_MESSAGES}s`);
       }
+    } catch (error) {
+      console.error(`[Telegram Bot] ❌ Error enviando alerta ${alert.id}:`, error.message);
+      // No marcar como enviada si falló, para reintentar después
+      // Pero actualizar el tiempo para evitar spam de errores
+      lastMessageTime = Date.now();
     }
   } catch (error) {
     console.error('[Telegram Bot] Error procesando alertas:', error);
@@ -241,6 +267,7 @@ async function main() {
   }
 
   console.log('[Telegram Bot] ✅ Bot iniciado correctamente');
+  console.log(`[Telegram Bot] Intervalo mínimo entre mensajes: ${MIN_INTERVAL_BETWEEN_MESSAGES} segundos`);
   console.log('[Telegram Bot] Monitoreando alertas cada 5 segundos...\n');
 
   // Procesar alertas inmediatamente

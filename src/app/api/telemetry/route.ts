@@ -134,8 +134,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
     }
 
-    const { fecha, voltaje, corriente, potencia, energia_acumulada, company_id, device_id } =
-      parsed.data;
+    const {
+      fecha,
+      voltaje,
+      corriente,
+      potencia,
+      energia_acumulada,
+      company_id,
+      device_id,
+    } = parsed.data;
 
     // Obtener company_id del usuario si no se proporciona
     let finalCompanyId: number | null = company_id || null;
@@ -301,13 +308,17 @@ async function checkAndGenerateAlerts(data: {
     if (voltaje > umbrales.voltaje_max) {
       alerts.push({
         tipo: "Alta tensión",
-        mensaje: `Voltaje excede el umbral máximo (${umbrales.voltaje_max}V). Valor actual: ${voltaje.toFixed(2)}V`,
+        mensaje: `Voltaje excede el umbral máximo (${
+          umbrales.voltaje_max
+        }V). Valor actual: ${voltaje.toFixed(2)}V`,
         valor: `${voltaje.toFixed(2)}V`,
       });
     } else if (voltaje < umbrales.voltaje_min) {
       alerts.push({
         tipo: "Baja tensión",
-        mensaje: `Voltaje está por debajo del umbral mínimo (${umbrales.voltaje_min}V). Valor actual: ${voltaje.toFixed(2)}V`,
+        mensaje: `Voltaje está por debajo del umbral mínimo (${
+          umbrales.voltaje_min
+        }V). Valor actual: ${voltaje.toFixed(2)}V`,
         valor: `${voltaje.toFixed(2)}V`,
       });
     }
@@ -318,28 +329,82 @@ async function checkAndGenerateAlerts(data: {
     if (potencia > umbrales.potencia_max) {
       alerts.push({
         tipo: "Alto consumo",
-        mensaje: `Potencia excede el umbral máximo (${umbrales.potencia_max}W). Valor actual: ${potencia.toFixed(2)}W`,
+        mensaje: `Potencia excede el umbral máximo (${
+          umbrales.potencia_max
+        }W). Valor actual: ${potencia.toFixed(2)}W`,
         valor: `${potencia.toFixed(2)}W`,
       });
     }
   }
 
-  // Crear alertas en la base de datos
+  // Crear alertas en la base de datos solo si no existe una alerta del mismo tipo en los últimos 20 segundos
   for (const alert of alerts) {
-    await query(
-      `INSERT INTO alerts (user_id, fecha, tipo, mensaje, valor, dispositivo, company_id, device_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        user_id,
-        fecha,
-        alert.tipo,
-        alert.mensaje,
-        alert.valor,
-        deviceName || null,
-        company_id,
-        device_id,
-      ]
-    );
+    // Construir la consulta según si device_id y company_id son null o no
+    let existingAlert;
+    if (device_id && company_id) {
+      // Ambos tienen valor
+      existingAlert = await query<{ id: number }>(
+        `SELECT id FROM alerts 
+         WHERE tipo = $1 
+         AND device_id = $2 
+         AND company_id = $3
+         AND created_at > NOW() - INTERVAL '20 seconds'
+         LIMIT 1`,
+        [alert.tipo, device_id, company_id]
+      );
+    } else if (device_id) {
+      // Solo device_id tiene valor
+      existingAlert = await query<{ id: number }>(
+        `SELECT id FROM alerts 
+         WHERE tipo = $1 
+         AND device_id = $2 
+         AND company_id IS NULL
+         AND created_at > NOW() - INTERVAL '20 seconds'
+         LIMIT 1`,
+        [alert.tipo, device_id]
+      );
+    } else if (company_id) {
+      // Solo company_id tiene valor
+      existingAlert = await query<{ id: number }>(
+        `SELECT id FROM alerts 
+         WHERE tipo = $1 
+         AND device_id IS NULL
+         AND company_id = $2
+         AND created_at > NOW() - INTERVAL '20 seconds'
+         LIMIT 1`,
+        [alert.tipo, company_id]
+      );
+    } else {
+      // Ninguno tiene valor, verificar por user_id
+      existingAlert = await query<{ id: number }>(
+        `SELECT id FROM alerts 
+         WHERE tipo = $1 
+         AND user_id = $2
+         AND device_id IS NULL
+         AND company_id IS NULL
+         AND created_at > NOW() - INTERVAL '20 seconds'
+         LIMIT 1`,
+        [alert.tipo, user_id]
+      );
+    }
+
+    // Solo crear la alerta si no existe una reciente (últimos 20 segundos)
+    if (existingAlert.rows.length === 0) {
+      await query(
+        `INSERT INTO alerts (user_id, fecha, tipo, mensaje, valor, dispositivo, company_id, device_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          user_id,
+          fecha,
+          alert.tipo,
+          alert.mensaje,
+          alert.valor,
+          deviceName || null,
+          company_id,
+          device_id,
+        ]
+      );
+    }
+    // Si ya existe una alerta reciente, no crear otra (evita spam de alertas)
   }
 }
-
