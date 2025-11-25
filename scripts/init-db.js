@@ -1,10 +1,20 @@
 // Inicializa la base de datos y crea la tabla de usuarios
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
 
-dotenv.config({ path: '.env.local' });
+// Intentar cargar .env.local si existe, sino usar solo variables de entorno
+const envLocalPath = path.join(__dirname, '..', '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath });
+}
 
-const dbUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/tesis_iot_db';
+// Construir DATABASE_URL desde variables de entorno si no está definida
+const dbUrl = process.env.DATABASE_URL || 
+  (process.env.PGHOST && process.env.PGUSER && process.env.PGPASSWORD && process.env.PGDATABASE
+    ? `postgresql://${process.env.PGUSER}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE}`
+    : 'postgres://postgres:postgres@localhost:5432/tesis_iot_db');
 
 function toPostgresDb(url) {
   try {

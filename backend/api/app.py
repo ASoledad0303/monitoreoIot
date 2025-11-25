@@ -71,8 +71,8 @@ def get_postgres_connection():
 # =========================
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT   = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER   = os.getenv("MQTT_USER", "") or None
-MQTT_PASS   = os.getenv("MQTT_PASS", "") or None
+MQTT_USER   = os.getenv("MQTT_USER", "tesis")
+MQTT_PASS   = os.getenv("MQTT_PASS", "sE2wBB29123w")
 MQTT_BASE   = os.getenv("MQTT_BASE", "tesis/iot/esp32")
 
 # Nuevo formato: esp/energia/{device_id}/state
@@ -384,12 +384,17 @@ def on_message(client, userdata, msg):
 def build_mqtt_client():
     client_id = f"api-flask-{int(time.time())}"
     c = mqtt.Client(client_id=client_id, clean_session=True)
+    # Siempre usar autenticación (las credenciales vienen de variables de entorno)
     if MQTT_USER and MQTT_PASS:
         c.username_pw_set(MQTT_USER, MQTT_PASS)
+        print(f"[MQTT] Configurando autenticación con usuario: {MQTT_USER}")
+    else:
+        print(f"[MQTT] ADVERTENCIA: No se configuraron credenciales MQTT")
     c.on_connect = on_connect
     c.on_message = on_message
     # TLS opcional si configurás broker con SSL:
     # c.tls_set() ; usar MQTT_PORT típico 8883
+    print(f"[MQTT] Conectando a {MQTT_BROKER}:{MQTT_PORT} con usuario: {MQTT_USER}")
     c.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
     return c
 
