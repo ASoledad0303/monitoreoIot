@@ -53,23 +53,54 @@ let pendingAlerts = [];
  */
 function sendTelegramMessage(text) {
   // Validar que el texto no esté vacío
-  if (!text || typeof text !== "string" || text.trim().length === 0) {
-    return Promise.reject(new Error("El mensaje está vacío"));
+  if (!text || typeof text !== "string") {
+    return Promise.reject(new Error("El mensaje no es una cadena válida"));
   }
+
+  // Limpiar y validar el mensaje
+  let cleanedText = cleanMessageForTelegram(text);
+  cleanedText = cleanedText.trim();
+
+  if (cleanedText.length === 0) {
+    return Promise.reject(
+      new Error("El mensaje está vacío después de limpiar")
+    );
+  }
+
+  // Validar que el mensaje tenga contenido visible (no solo espacios, saltos de línea, etc.)
+  const visibleText = cleanedText.replace(/[\s\n\r\t\u200B-\u200D\uFEFF]/g, "");
+  if (visibleText.length === 0) {
+    return Promise.reject(
+      new Error("El mensaje solo contiene espacios en blanco")
+    );
+  }
+
+  // Log del mensaje que se va a enviar (solo primeros 200 caracteres para no saturar logs)
+  const preview =
+    cleanedText.length > 200
+      ? cleanedText.substring(0, 200) + "..."
+      : cleanedText;
+  console.log(
+    `[Telegram Bot] 📤 Enviando mensaje (${cleanedText.length} caracteres, ${
+      visibleText.length
+    } visibles): ${preview.replace(/\n/g, "\\n")}`
+  );
 
   return new Promise((resolve, reject) => {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-    const data = JSON.stringify({
+    const payload = {
       chat_id: TELEGRAM_CHAT_ID,
-      text: text.trim(),
+      text: cleanedText,
       // Sin parse_mode para texto plano
-    });
+    };
+
+    const data = JSON.stringify(payload);
 
     const options = {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Content-Length": data.length,
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": Buffer.byteLength(data, "utf8"),
       },
     };
 
@@ -81,14 +112,28 @@ function sendTelegramMessage(text) {
       });
 
       res.on("end", () => {
-        if (res.statusCode === 200) {
+        try {
           const response = JSON.parse(responseData);
-          if (response.ok) {
+          if (res.statusCode === 200 && response.ok) {
+            console.log(`[Telegram Bot] ✅ Mensaje enviado exitosamente`);
             resolve(response);
           } else {
-            reject(new Error(`Telegram API error: ${response.description}`));
+            // Log detallado del error
+            console.error(
+              `[Telegram Bot] ❌ Error de Telegram API (${res.statusCode}):`,
+              JSON.stringify(response, null, 2)
+            );
+            reject(
+              new Error(`HTTP ${res.statusCode}: ${JSON.stringify(response)}`)
+            );
           }
-        } else {
+        } catch (parseError) {
+          console.error(
+            `[Telegram Bot] ❌ Error parseando respuesta de Telegram:`,
+            parseError.message,
+            "Respuesta:",
+            responseData
+          );
           reject(new Error(`HTTP ${res.statusCode}: ${responseData}`));
         }
       });
@@ -101,6 +146,26 @@ function sendTelegramMessage(text) {
     req.write(data);
     req.end();
   });
+}
+
+/**
+ * Limpia el mensaje de caracteres problemáticos que Telegram podría rechazar
+ */
+function cleanMessageForTelegram(text) {
+  if (!text || typeof text !== "string") {
+    return "";
+  }
+
+  // Remover caracteres de control excepto \n y \r
+  let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+  // Asegurar que el mensaje tenga contenido visible
+  const visibleChars = cleaned.replace(/[\s\n\r\t\u200B-\u200D\uFEFF]/g, "");
+  if (visibleChars.length === 0) {
+    return "";
+  }
+
+  return cleaned;
 }
 
 /**
@@ -248,7 +313,20 @@ function formatAlertMessage(alert) {
     return null;
   }
 
-  return mensaje;
+  // Limpiar el mensaje final antes de devolverlo para evitar caracteres problemáticos
+  const mensajeLimpio = cleanMessageForTelegram(mensaje);
+  if (!mensajeLimpio || mensajeLimpio.trim().length === 0) {
+    console.warn(
+      `[Telegram Bot] ⚠️ Mensaje quedó vacío después de limpiar para alerta ${alert.id}. Mensaje original tenía ${mensaje.length} caracteres`
+    );
+    // Intentar usar el mensaje original si la limpieza lo vació completamente
+    if (mensaje.trim().length > 0) {
+      return mensaje.trim();
+    }
+    return null;
+  }
+
+  return mensajeLimpio.trim();
 }
 
 /**
