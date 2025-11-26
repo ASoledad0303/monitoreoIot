@@ -104,6 +104,31 @@ function sendTelegramMessage(text) {
 }
 
 /**
+ * Genera un mensaje automático basado en el tipo y valor de la alerta
+ */
+function generateAutoMessage(tipo, valor) {
+  if (!tipo) {
+    return null;
+  }
+
+  const tipoTexto = tipo.trim();
+  const valorTexto = valor ? String(valor).trim() : "N/A";
+
+  // Generar mensaje automático según el tipo
+  if (tipoTexto === "Alta tensión") {
+    return `Voltaje excede el umbral máximo. Valor actual: ${valorTexto}`;
+  } else if (tipoTexto === "Baja tensión") {
+    return `Voltaje está por debajo del umbral mínimo. Valor actual: ${valorTexto}`;
+  } else if (tipoTexto === "Alto consumo") {
+    return `Potencia excede el umbral máximo. Valor actual: ${valorTexto}`;
+  } else if (tipoTexto === "Corriente elevada") {
+    return `Corriente excede el umbral máximo. Valor actual: ${valorTexto}`;
+  } else {
+    return `Alerta de ${tipoTexto}: ${valorTexto}`;
+  }
+}
+
+/**
  * Formatea el mensaje de alerta para Telegram (sin HTML, solo texto plano)
  */
 function formatAlertMessage(alert) {
@@ -141,12 +166,54 @@ function formatAlertMessage(alert) {
     mensaje += `\n📱 Dispositivo: ${alert.dispositivo}`;
   }
 
+  // Usar el mensaje de la alerta si existe y es válido
+  // Si no, generar uno automáticamente basado en tipo y valor
+  let mensajeDetalle = "";
+
+  // Verificar si hay un mensaje válido en la alerta
   if (
     alert.mensaje &&
-    alert.mensaje !== alert.valor &&
-    alert.mensaje.trim() !== ""
+    typeof alert.mensaje === "string" &&
+    alert.mensaje.trim() !== "" &&
+    alert.mensaje.trim() !== valorTexto
   ) {
-    mensaje += `\n\n${alert.mensaje}`;
+    mensajeDetalle = alert.mensaje.trim();
+  } else {
+    // Generar mensaje automático si no hay mensaje o está vacío
+    // Solo generar si tenemos tipo y valor válidos
+    if (
+      tipoTexto &&
+      tipoTexto !== "Alerta desconocida" &&
+      valorTexto &&
+      valorTexto !== "N/A"
+    ) {
+      const autoMensaje = generateAutoMessage(tipoTexto, valorTexto);
+      if (autoMensaje) {
+        mensajeDetalle = autoMensaje;
+      }
+    }
+  }
+
+  // Si aún no hay mensaje de detalle, intentar generar uno genérico
+  if (!mensajeDetalle) {
+    if (tipoTexto && tipoTexto !== "Alerta desconocida") {
+      // Intentar generar mensaje automático incluso si el valor está vacío
+      const autoMensaje = generateAutoMessage(
+        tipoTexto,
+        valorTexto || "desconocido"
+      );
+      if (autoMensaje) {
+        mensajeDetalle = autoMensaje;
+      } else if (valorTexto && valorTexto !== "N/A") {
+        mensajeDetalle = `Se detectó ${tipoTexto.toLowerCase()} con valor ${valorTexto}`;
+      } else {
+        mensajeDetalle = `Se detectó ${tipoTexto.toLowerCase()}`;
+      }
+    }
+  }
+
+  if (mensajeDetalle) {
+    mensaje += `\n\n${mensajeDetalle}`;
   }
 
   // Formatear fecha de forma segura
@@ -223,17 +290,28 @@ async function processAlerts() {
     const alert = result.rows[0];
 
     // Log de debug para ver qué datos tiene la alerta
-    if (!alert.tipo || !alert.valor || !alert.mensaje) {
+    if (!alert.tipo || !alert.valor) {
       console.warn(
         `[Telegram Bot] ⚠️ Alerta ${alert.id} con datos incompletos:`,
-        JSON.stringify({
-          id: alert.id,
-          tipo: alert.tipo,
-          valor: alert.valor,
-          mensaje: alert.mensaje,
-          dispositivo: alert.dispositivo,
-          created_at: alert.created_at,
-        }, null, 2)
+        JSON.stringify(
+          {
+            id: alert.id,
+            tipo: alert.tipo,
+            valor: alert.valor,
+            mensaje: alert.mensaje,
+            dispositivo: alert.dispositivo,
+            created_at: alert.created_at,
+          },
+          null,
+          2
+        )
+      );
+    }
+
+    // Si el mensaje está vacío, informar que se generará uno automático
+    if (!alert.mensaje || alert.mensaje.trim() === "") {
+      console.log(
+        `[Telegram Bot] ℹ️ Alerta ${alert.id} sin mensaje, generando mensaje automático basado en tipo y valor`
       );
     }
 
