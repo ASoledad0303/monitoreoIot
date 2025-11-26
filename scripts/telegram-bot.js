@@ -147,13 +147,15 @@ function formatAlertMessage(alert) {
 
   const tipoEmoji = emoji[alert.tipo] || "🔔";
 
+  // Asegurar que tipo y valor no sean null/undefined
+  const tipoTexto = String(alert.tipo || "Alerta desconocida").trim();
+  const valorTexto = alert.valor ? String(alert.valor).trim() : "N/A";
+
   // Formato del mensaje sin HTML, solo texto plano
+  // SIEMPRE empezar con contenido válido
   let mensaje = `${tipoEmoji} Ocurrió un evento\n\n`;
 
   // Formato específico según el tipo de alerta
-  const tipoTexto = alert.tipo || "Alerta desconocida";
-  const valorTexto = alert.valor || "N/A";
-
   if (tipoTexto === "Alta tensión" || tipoTexto === "Baja tensión") {
     mensaje += `${tipoTexto}: ${valorTexto}\n`;
   } else if (tipoTexto === "Corriente elevada") {
@@ -163,7 +165,7 @@ function formatAlertMessage(alert) {
   }
 
   if (alert.dispositivo) {
-    mensaje += `\n📱 Dispositivo: ${alert.dispositivo}`;
+    mensaje += `\n📱 Dispositivo: ${String(alert.dispositivo).trim()}`;
   }
 
   // Usar el mensaje de la alerta si existe y es válido
@@ -179,32 +181,13 @@ function formatAlertMessage(alert) {
   ) {
     mensajeDetalle = alert.mensaje.trim();
   } else {
-    // Generar mensaje automático si no hay mensaje o está vacío
-    // Solo generar si tenemos tipo y valor válidos
-    if (
-      tipoTexto &&
-      tipoTexto !== "Alerta desconocida" &&
-      valorTexto &&
-      valorTexto !== "N/A"
-    ) {
-      const autoMensaje = generateAutoMessage(tipoTexto, valorTexto);
-      if (autoMensaje) {
-        mensajeDetalle = autoMensaje;
-      }
-    }
-  }
-
-  // Si aún no hay mensaje de detalle, intentar generar uno genérico
-  if (!mensajeDetalle) {
-    if (tipoTexto && tipoTexto !== "Alerta desconocida") {
-      // Intentar generar mensaje automático incluso si el valor está vacío
-      const autoMensaje = generateAutoMessage(
-        tipoTexto,
-        valorTexto || "desconocido"
-      );
-      if (autoMensaje) {
-        mensajeDetalle = autoMensaje;
-      } else if (valorTexto && valorTexto !== "N/A") {
+    // SIEMPRE generar mensaje automático si no hay mensaje o está vacío
+    const autoMensaje = generateAutoMessage(tipoTexto, valorTexto);
+    if (autoMensaje) {
+      mensajeDetalle = autoMensaje;
+    } else {
+      // Fallback: mensaje genérico
+      if (valorTexto && valorTexto !== "N/A") {
         mensajeDetalle = `Se detectó ${tipoTexto.toLowerCase()} con valor ${valorTexto}`;
       } else {
         mensajeDetalle = `Se detectó ${tipoTexto.toLowerCase()}`;
@@ -212,7 +195,8 @@ function formatAlertMessage(alert) {
     }
   }
 
-  if (mensajeDetalle) {
+  // SIEMPRE agregar el mensaje de detalle
+  if (mensajeDetalle && mensajeDetalle.trim().length > 0) {
     mensaje += `\n\n${mensajeDetalle}`;
   }
 
@@ -238,9 +222,29 @@ function formatAlertMessage(alert) {
   const mensajeTrimmed = mensaje.trim();
   if (!mensajeTrimmed || mensajeTrimmed.length === 0) {
     console.warn(
-      "[Telegram Bot] ⚠️ Mensaje formateado está vacío para alerta:",
-      alert.id
+      `[Telegram Bot] ⚠️ Mensaje formateado está vacío para alerta ${alert.id}. Datos:`,
+      JSON.stringify({
+        tipo: alert.tipo,
+        valor: alert.valor,
+        mensaje: alert.mensaje,
+        dispositivo: alert.dispositivo,
+        mensajeDetalle: mensajeDetalle,
+      })
     );
+
+    // Como último recurso, intentar generar un mensaje mínimo
+    if (tipoTexto && tipoTexto !== "Alerta desconocida") {
+      const mensajeMinimo = `${tipoEmoji} Ocurrió un evento\n\n${tipoTexto}: ${
+        valorTexto || "N/A"
+      }\n\n🕐 ${fechaTexto}`;
+      if (mensajeMinimo.trim().length > 0) {
+        console.log(
+          `[Telegram Bot] ✅ Generado mensaje mínimo para alerta ${alert.id}`
+        );
+        return mensajeMinimo;
+      }
+    }
+
     return null;
   }
 
@@ -316,23 +320,84 @@ async function processAlerts() {
     }
 
     try {
+      // Log detallado antes de formatear
+      console.log(
+        `[Telegram Bot] 📋 Procesando alerta ${alert.id}: tipo="${
+          alert.tipo
+        }", valor="${alert.valor}", mensaje="${alert.mensaje || "(vacío)"}"`
+      );
+
       const message = formatAlertMessage(alert);
 
-      // Si el mensaje es null o vacío, marcar como enviada para evitar reintentos infinitos
-      if (!message || message.trim().length === 0) {
+      // Log del mensaje formateado
+      if (message) {
+        const msgPreview =
+          message.length > 150 ? message.substring(0, 150) + "..." : message;
+        console.log(
+          `[Telegram Bot] 📝 Mensaje formateado (${
+            message.length
+          } caracteres): ${msgPreview.replace(/\n/g, " ")}`
+        );
+      } else {
         console.warn(
-          `[Telegram Bot] ⚠️ Alerta ${alert.id} tiene mensaje vacío, marcando como enviada para evitar reintentos`
+          `[Telegram Bot] ⚠️ formatAlertMessage devolvió null para alerta ${alert.id}`
         );
-        await pool.query(
-          "UPDATE alerts SET telegram_sent = true WHERE id = $1",
-          [alert.id]
-        );
-        // Actualizar tiempo para evitar spam de logs
-        lastMessageTime = Date.now();
-        return;
       }
 
-      await sendTelegramMessage(message);
+      // Si el mensaje es null o vacío, intentar generar uno mínimo
+      if (!message || message.trim().length === 0) {
+        console.warn(
+          `[Telegram Bot] ⚠️ Alerta ${alert.id} tiene mensaje vacío después de formatear, generando mensaje mínimo`
+        );
+
+        // Generar mensaje mínimo como último recurso
+        const tipoTexto = String(alert.tipo || "Alerta").trim();
+        const valorTexto = alert.valor ? String(alert.valor).trim() : "N/A";
+        const emoji =
+          {
+            "Alta tensión": "⚠️",
+            "Baja tensión": "🔻",
+            "Alto consumo": "⚡",
+            "Corriente elevada": "🔌",
+          }[tipoTexto] || "🔔";
+
+        let fechaTexto = "Fecha no disponible";
+        if (alert.created_at) {
+          try {
+            const fecha = new Date(alert.created_at);
+            if (!isNaN(fecha.getTime())) {
+              fechaTexto = fecha.toLocaleString("es-PY", {
+                timeZone: "America/Asuncion",
+                dateStyle: "short",
+                timeStyle: "short",
+              });
+            }
+          } catch (e) {
+            // Ignorar error de fecha
+          }
+        }
+
+        const mensajeMinimo = `${emoji} Ocurrió un evento\n\n${tipoTexto}: ${valorTexto}\n\n🕐 ${fechaTexto}`;
+
+        if (mensajeMinimo.trim().length > 0) {
+          console.log(
+            `[Telegram Bot] ✅ Usando mensaje mínimo para alerta ${alert.id}`
+          );
+          await sendTelegramMessage(mensajeMinimo);
+        } else {
+          console.warn(
+            `[Telegram Bot] ⚠️ No se pudo generar mensaje mínimo para alerta ${alert.id}, marcando como enviada`
+          );
+          await pool.query(
+            "UPDATE alerts SET telegram_sent = true WHERE id = $1",
+            [alert.id]
+          );
+          lastMessageTime = Date.now();
+          return;
+        }
+      } else {
+        await sendTelegramMessage(message);
+      }
 
       // Actualizar tiempo del último mensaje
       lastMessageTime = Date.now();
