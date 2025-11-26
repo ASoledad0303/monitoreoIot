@@ -188,9 +188,23 @@ def _save_to_telemetry_history(device_code: str, voltaje: float = None, corrient
                 created_at
             ))
             conn.commit()
+            print(f"[MQTT] Guardado en telemetry_history: device={device_code}, device_id={device_id}, fecha={fecha}, voltaje={voltaje}, corriente={corriente}, potencia={potencia}")
+            
+            # Generar alertas automáticamente si los valores exceden umbrales
+            if user_id:
+                try:
+                    _check_and_generate_alerts(
+                        cursor, conn, voltaje, corriente, potencia,
+                        company_id, device_id, user_id, fecha, device_code
+                    )
+                except Exception as alert_error:
+                    print(f"[MQTT] Error generando alertas: {alert_error}")
+                    import traceback
+                    traceback.print_exc()
+                    # No fallar si la generación de alertas falla
+            
             cursor.close()
             conn.close()
-            print(f"[MQTT] Guardado en telemetry_history: device={device_code}, device_id={device_id}, fecha={fecha}, voltaje={voltaje}, corriente={corriente}, potencia={potencia}")
         except Exception as e:
             print(f"[MQTT] Error guardando en telemetry_history: {e}")
             import traceback
@@ -205,6 +219,138 @@ def _save_to_telemetry_history(device_code: str, voltaje: float = None, corrient
     # Ejecutar en segundo plano
     thread = threading.Thread(target=save_task, daemon=True)
     thread.start()
+
+def _check_and_generate_alerts(cursor, conn, voltaje, corriente, potencia, company_id, device_id, user_id, fecha, device_code):
+    """Verifica umbrales y genera alertas automáticamente"""
+    if not user_id:
+        print(f"[MQTT] ⚠️ No se puede generar alertas sin user_id para device {device_code}")
+        return
+    
+    umbrales = None
+    
+    # Primero intentar obtener umbrales de la company
+    if company_id:
+        cursor.execute("""
+            SELECT voltaje_min, voltaje_max, potencia_max 
+            FROM umbrales 
+            WHERE company_id = %s AND user_id IS NULL 
+            LIMIT 1
+        """, (company_id,))
+        
+        umbrales_row = cursor.fetchone()
+        if umbrales_row and umbrales_row[0] is not None:
+            # Verificar que los valores no sean NULL
+            umbrales = {
+                'voltaje_min': umbrales_row[0] if umbrales_row[0] is not None else 200,
+                'voltaje_max': umbrales_row[1] if umbrales_row[1] is not None else 250,
+                'potencia_max': umbrales_row[2] if umbrales_row[2] is not None else 5000
+            }
+            print(f"[MQTT] ✅ Umbrales obtenidos de company_id={company_id}: min={umbrales['voltaje_min']}V, max={umbrales['voltaje_max']}V, potencia_max={umbrales['potencia_max']}W")
+    
+    # Si no hay umbrales de company, buscar del usuario
+    if not umbrales and user_id:
+        cursor.execute("""
+            SELECT voltaje_min, voltaje_max, potencia_max 
+            FROM umbrales 
+            WHERE user_id = %s 
+            LIMIT 1
+        """, (user_id,))
+        
+        umbrales_row = cursor.fetchone()
+        if umbrales_row and umbrales_row[0] is not None:
+            umbrales = {
+                'voltaje_min': umbrales_row[0] if umbrales_row[0] is not None else 200,
+                'voltaje_max': umbrales_row[1] if umbrales_row[1] is not None else 250,
+                'potencia_max': umbrales_row[2] if umbrales_row[2] is not None else 5000
+            }
+            print(f"[MQTT] ✅ Umbrales obtenidos de user_id={user_id}: min={umbrales['voltaje_min']}V, max={umbrales['voltaje_max']}V, potencia_max={umbrales['potencia_max']}W")
+    
+    # Si aún no hay umbrales, usar valores por defecto
+    if not umbrales:
+        umbrales = {
+            'voltaje_min': 200,
+            'voltaje_max': 250,
+            'potencia_max': 5000
+        }
+        print(f"[MQTT] ⚠️ No se encontraron umbrales, usando valores por defecto: min={umbrales['voltaje_min']}V, max={umbrales['voltaje_max']}V, potencia_max={umbrales['potencia_max']}W")
+    
+    # Obtener nombre del dispositivo
+    cursor.execute("SELECT name FROM devices WHERE id = %s", (device_id,))
+    device_result = cursor.fetchone()
+    device_name = device_result[0] if device_result else None
+    
+    alerts = []
+    
+    # Verificar voltaje
+    if voltaje is not None and isinstance(voltaje, (int, float)):
+        if voltaje > umbrales['voltaje_max']:
+            alerts.append({
+                'tipo': 'Alta tensión',
+                'mensaje': f"Voltaje excede el umbral máximo ({umbrales['voltaje_max']}V). Valor actual: {voltaje:.2f}V",
+                'valor': f"{voltaje:.2f}V"
+            })
+            print(f"[MQTT] ⚠️ Alta tensión detectada: {voltaje:.2f}V > {umbrales['voltaje_max']}V")
+        elif voltaje < umbrales['voltaje_min']:
+            alerts.append({
+                'tipo': 'Baja tensión',
+                'mensaje': f"Voltaje está por debajo del umbral mínimo ({umbrales['voltaje_min']}V). Valor actual: {voltaje:.2f}V",
+                'valor': f"{voltaje:.2f}V"
+            })
+            print(f"[MQTT] ⚠️ Baja tensión detectada: {voltaje:.2f}V < {umbrales['voltaje_min']}V")
+    
+    # Verificar potencia
+    if potencia is not None and isinstance(potencia, (int, float)):
+        potencia_abs = abs(potencia)
+        if potencia_abs > umbrales['potencia_max']:
+            alerts.append({
+                'tipo': 'Alto consumo',
+                'mensaje': f"Potencia excede el umbral máximo ({umbrales['potencia_max']}W). Valor actual: {potencia_abs:.2f}W",
+                'valor': f"{potencia_abs:.2f}W"
+            })
+            print(f"[MQTT] ⚠️ Alto consumo detectado: {potencia_abs:.2f}W > {umbrales['potencia_max']}W")
+    
+    # Crear alertas en la base de datos solo si no existe una alerta del mismo tipo en los últimos 20 segundos
+    for alert in alerts:
+        # Validar que el mensaje y el valor no estén vacíos
+        if not alert['mensaje'] or not alert['mensaje'].strip():
+            print(f"[MQTT] ⚠️ Alerta de tipo '{alert['tipo']}' tiene mensaje vacío, omitiendo inserción")
+            continue
+        
+        if not alert['valor'] or not alert['valor'].strip():
+            print(f"[MQTT] ⚠️ Alerta de tipo '{alert['tipo']}' tiene valor vacío, omitiendo inserción")
+            continue
+        
+        # Verificar si ya existe una alerta del mismo tipo para este dispositivo en los últimos 20 segundos
+        cursor.execute("""
+            SELECT id FROM alerts 
+            WHERE tipo = %s 
+            AND device_id = %s 
+            AND company_id = %s
+            AND created_at > NOW() - INTERVAL '20 seconds'
+            LIMIT 1
+        """, (alert['tipo'], device_id, company_id))
+        
+        existing_alert = cursor.fetchone()
+        
+        # Solo crear la alerta si no existe una reciente (últimos 20 segundos)
+        if not existing_alert:
+            cursor.execute("""
+                INSERT INTO alerts (user_id, fecha, tipo, mensaje, valor, dispositivo, company_id, device_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                user_id,
+                fecha,
+                alert['tipo'],
+                alert['mensaje'].strip(),
+                alert['valor'].strip(),
+                device_name,
+                company_id,
+                device_id
+            ))
+            conn.commit()
+            print(f"[MQTT] ✅ Alerta creada: {alert['tipo']} para dispositivo {device_code} (device_id={device_id})")
+        else:
+            print(f"[MQTT] ⏭️ Alerta de tipo '{alert['tipo']}' para dispositivo {device_code} (ID: {device_id}) omitida debido al intervalo de 20 segundos")
 
 def _update_metrics(topic: str, payload: Dict[str, Any]):
     """Actualiza el estado en memoria y encola eventos SSE."""
