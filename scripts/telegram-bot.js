@@ -186,10 +186,17 @@ function formatAlertMessage(alert) {
 async function processAlerts() {
   try {
     // Obtener alertas que no han sido enviadas a Telegram
+    // Filtrar alertas con mensaje o valor vacío para evitar procesarlas
     const result = await pool.query(`
       SELECT id, tipo, mensaje, valor, dispositivo, created_at
       FROM alerts
-      WHERE telegram_sent = false OR telegram_sent IS NULL
+      WHERE (telegram_sent = false OR telegram_sent IS NULL)
+      AND tipo IS NOT NULL
+      AND tipo != ''
+      AND mensaje IS NOT NULL
+      AND mensaje != ''
+      AND valor IS NOT NULL
+      AND valor != ''
       ORDER BY created_at ASC
       LIMIT 50
     `);
@@ -216,17 +223,17 @@ async function processAlerts() {
     const alert = result.rows[0];
 
     // Log de debug para ver qué datos tiene la alerta
-    if (!alert.tipo || !alert.valor) {
+    if (!alert.tipo || !alert.valor || !alert.mensaje) {
       console.warn(
         `[Telegram Bot] ⚠️ Alerta ${alert.id} con datos incompletos:`,
-        {
+        JSON.stringify({
           id: alert.id,
           tipo: alert.tipo,
           valor: alert.valor,
           mensaje: alert.mensaje,
           dispositivo: alert.dispositivo,
           created_at: alert.created_at,
-        }
+        }, null, 2)
       );
     }
 

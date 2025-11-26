@@ -133,7 +133,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
     }
 
-    const { fecha, tipo, mensaje, valor, dispositivo, company_id, device_id } = parsed.data;
+    const { fecha, tipo, mensaje, valor, dispositivo, company_id, device_id } =
+      parsed.data;
+
+    // Validar que el mensaje no esté vacío (es requerido)
+    const mensajeTrimmed = mensaje?.trim() || "";
+    if (mensajeTrimmed.length === 0) {
+      return NextResponse.json(
+        { error: "El mensaje de la alerta no puede estar vacío" },
+        { status: 400 }
+      );
+    }
+
+    // Validar que el valor no esté vacío si se proporciona (aunque es opcional en el schema)
+    // Si se proporciona, debe tener contenido válido
+    let valorFinal: string | null = null;
+    if (valor !== undefined && valor !== null) {
+      const valorTrimmed =
+        typeof valor === "string" ? valor.trim() : String(valor).trim();
+      if (valorTrimmed.length === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "El valor de la alerta no puede estar vacío si se proporciona",
+          },
+          { status: 400 }
+        );
+      }
+      valorFinal = valorTrimmed;
+    }
 
     // Obtener company_id del usuario si no se proporciona
     let finalCompanyId: number | null = company_id || null;
@@ -164,12 +192,12 @@ export async function POST(req: NextRequest) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
       [
-        user.sub, 
-        fecha, 
-        tipo, 
-        mensaje, 
-        valor || null, 
-        dispositivo || null,
+        user.sub,
+        fecha,
+        tipo,
+        mensajeTrimmed, // Usar mensaje validado y recortado
+        valorFinal, // Usar valor validado o null
+        dispositivo ? dispositivo.trim() : null,
         finalCompanyId || null,
         device_id || null,
       ]
@@ -184,4 +212,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Error de servidor" }, { status: 500 });
   }
 }
-

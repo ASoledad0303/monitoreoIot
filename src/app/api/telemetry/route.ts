@@ -388,6 +388,17 @@ async function checkAndGenerateAlerts(data: {
       );
     }
 
+    // Validar que el mensaje y el valor no estén vacíos antes de insertar
+    if (!alert.mensaje || alert.mensaje.trim().length === 0) {
+      console.warn(`[Alerts] ⚠️ Alerta de tipo "${alert.tipo}" tiene mensaje vacío, omitiendo inserción`);
+      continue;
+    }
+
+    if (!alert.valor || alert.valor.trim().length === 0) {
+      console.warn(`[Alerts] ⚠️ Alerta de tipo "${alert.tipo}" tiene valor vacío, omitiendo inserción`);
+      continue;
+    }
+
     // Solo crear la alerta si no existe una reciente (últimos 20 segundos)
     if (existingAlert.rows.length === 0) {
       await query(
@@ -397,8 +408,8 @@ async function checkAndGenerateAlerts(data: {
           user_id,
           fecha,
           alert.tipo,
-          alert.mensaje,
-          alert.valor,
+          alert.mensaje.trim(), // Asegurar que no tenga espacios al inicio/final
+          alert.valor.trim(), // Asegurar que no tenga espacios al inicio/final
           deviceName || null,
           company_id,
           device_id,

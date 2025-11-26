@@ -239,6 +239,17 @@ async function checkAndGenerateAlerts(data: {
 
   // Crear alertas en la base de datos solo si no existe una alerta del mismo tipo en los últimos 20 segundos
   for (const alert of alerts) {
+    // Validar que el mensaje y el valor no estén vacíos antes de insertar
+    if (!alert.mensaje || alert.mensaje.trim().length === 0) {
+      console.warn(`[Alerts] ⚠️ Alerta de tipo "${alert.tipo}" tiene mensaje vacío, omitiendo inserción`);
+      continue;
+    }
+
+    if (!alert.valor || alert.valor.trim().length === 0) {
+      console.warn(`[Alerts] ⚠️ Alerta de tipo "${alert.tipo}" tiene valor vacío, omitiendo inserción`);
+      continue;
+    }
+
     // Verificar si ya existe una alerta del mismo tipo para este dispositivo en los últimos 20 segundos
     const existingAlert = await query<{ id: number }>(
       `SELECT id FROM alerts 
@@ -259,8 +270,8 @@ async function checkAndGenerateAlerts(data: {
           user_id,
           fecha,
           alert.tipo,
-          alert.mensaje,
-          alert.valor,
+          alert.mensaje.trim(), // Asegurar que no tenga espacios al inicio/final
+          alert.valor.trim(), // Asegurar que no tenga espacios al inicio/final
           deviceName || null,
           company_id,
           device_id,
