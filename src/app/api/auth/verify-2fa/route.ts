@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query } from "@/lib/db";
 import { signToken } from "@/lib/jwt";
 import { COMPANY_CONFIG, ROLES } from "@/lib/config";
+import { getAuthCookieOptions } from "@/lib/cookies";
 
 const Schema = z.object({
   email: z.string().email(),
@@ -19,6 +20,10 @@ export async function POST(req: Request) {
 
     const { email, code } = parsed.data;
 
+    // Obtener URL de redirect desde query params o body, o usar "/"
+    const url = new URL(req.url);
+    const redirectTo = url.searchParams.get("redirect") || body.redirect || "/";
+
     // Buscar usuario
     const u = await query<{
       id: number;
@@ -30,7 +35,7 @@ export async function POST(req: Request) {
       `SELECT u.id, u.email, u.name, r.name as role, u.company_id 
        FROM users u 
        INNER JOIN roles r ON u.role_id = r.id 
-       WHERE u.email = $1`, 
+       WHERE u.email = $1`,
       [email]
     );
     const user = u.rows[0];
@@ -42,14 +47,18 @@ export async function POST(req: Request) {
     }
 
     // Si es admin y no tiene company, crear una automáticamente
-    if (COMPANY_CONFIG.ENABLED && user.role === ROLES.ADMIN && !user.company_id) {
+    if (
+      COMPANY_CONFIG.ENABLED &&
+      user.role === ROLES.ADMIN &&
+      !user.company_id
+    ) {
       // Generar código automático basado en el nombre del usuario
       const namePrefix = user.name
         .toUpperCase()
         .replace(/[^A-Z0-9]/g, "")
         .substring(0, 3)
         .padEnd(3, "X");
-      
+
       // Buscar último código con ese prefijo
       const lastCodeResult = await query<{ code: string }>(
         `SELECT code FROM companies 
@@ -82,10 +91,10 @@ export async function POST(req: Request) {
       );
 
       // Asignar company al usuario
-      await query(
-        "UPDATE users SET company_id = $1 WHERE id = $2",
-        [companyResult.rows[0].id, user.id]
-      );
+      await query("UPDATE users SET company_id = $1 WHERE id = $2", [
+        companyResult.rows[0].id,
+        user.id,
+      ]);
 
       // Actualizar user.company_id para el token
       user.company_id = companyResult.rows[0].id;
@@ -116,14 +125,16 @@ export async function POST(req: Request) {
       name: user.name,
       role: user.role || "user", // Default a 'user' si no tiene role
     });
-    const resp = NextResponse.json({ ok: true });
-    resp.cookies.set("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 días
+
+    // Devolver JSON con la cookie establecida
+    // El cliente hará el redirect después de asegurar que la cookie esté disponible
+    const resp = NextResponse.json({
+      ok: true,
+      redirect: redirectTo,
     });
+
+    // Establecer cookie con configuración que funciona en HTTP y HTTPS
+    resp.cookies.set("auth_token", token, getAuthCookieOptions(req));
 
     return resp;
   } catch (e) {

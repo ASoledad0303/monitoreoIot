@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { query } from "@/lib/db";
 
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = Number(process.env.SMTP_PORT || 587);
@@ -6,6 +7,28 @@ const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 const mailFrom = process.env.MAIL_FROM || "no-reply@tesis-iot.local";
 
+/**
+ * Agrega un email a la cola para ser procesado por el worker en segundo plano
+ */
+export async function queueEmail(to: string, subject: string, html: string) {
+  try {
+    const result = await query(
+      `INSERT INTO email_queue (to_email, subject, html, status)
+       VALUES ($1, $2, $3, 'pending')
+       RETURNING id`,
+      [to, subject, html]
+    );
+    console.log(`[mailer] Email agregado a la cola (ID: ${result.rows[0].id}) para ${to}`);
+    return { queued: true, id: result.rows[0].id };
+  } catch (error) {
+    console.error("[mailer] Error agregando email a la cola:", error);
+    throw error;
+  }
+}
+
+/**
+ * Envía un email directamente usando SMTP (usado por el worker)
+ */
 export async function sendMail(to: string, subject: string, html: string) {
   if (!smtpHost || !smtpUser || !smtpPass) {
     console.warn("[mailer] SMTP no configurado. Simulando envío a", to);
@@ -14,23 +37,47 @@ export async function sendMail(to: string, subject: string, html: string) {
     return { simulated: true };
   }
 
+  console.log("[mailer] Intentando conectar a SMTP:", {
+    host: smtpHost,
+    port: smtpPort,
+    user: smtpUser,
+    from: mailFrom,
+    to: to,
+  });
+
   const transporter = nodemailer.createTransport({
     host: smtpHost,
     port: smtpPort,
     secure: smtpPort === 465, // true para 465, false para otros puertos
     auth: { user: smtpUser, pass: smtpPass },
+    connectionTimeout: 10000, // 10 segundos timeout para conexión
+    socketTimeout: 10000, // 10 segundos timeout para operaciones
     tls: {
       // No rechazar conexiones no autorizadas (útil para desarrollo)
       rejectUnauthorized: false,
     },
   });
 
+  try {
+    console.log("[mailer] Verificando conexión SMTP...");
+    await transporter.verify();
+    console.log("[mailer] Conexión SMTP verificada exitosamente");
+  } catch (verifyError) {
+    console.error("[mailer] Error verificando conexión SMTP:", verifyError);
+    throw verifyError;
+  }
+
+  console.log("[mailer] Enviando email...");
   const info = await transporter.sendMail({
     from: mailFrom,
     to,
     subject,
     html,
   });
+  console.log(
+    "[mailer] Email enviado exitosamente. MessageId:",
+    info.messageId
+  );
   return { messageId: info.messageId };
 }
 

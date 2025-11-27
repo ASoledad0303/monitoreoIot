@@ -102,6 +102,38 @@ async function createTables() {
     );
   `);
 
+  // Tabla de cola de emails
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_queue (
+      id SERIAL PRIMARY KEY,
+      to_email VARCHAR(160) NOT NULL,
+      subject VARCHAR(255) NOT NULL,
+      html TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending' | 'processing' | 'sent' | 'failed'
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      max_retries INTEGER NOT NULL DEFAULT 3,
+      last_error TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMP,
+      sent_at TIMESTAMP
+    );
+  `);
+
+  // Índices para la cola de emails
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_email_queue_status_created 
+      ON email_queue(status, created_at);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_email_queue_retry 
+      ON email_queue(status, retry_count, created_at) 
+      WHERE status IN ('pending', 'failed');
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
+
   // Tabla de alertas
   await pool.query(`
     CREATE TABLE IF NOT EXISTS alerts (
@@ -112,9 +144,51 @@ async function createTables() {
       mensaje TEXT NOT NULL,
       valor VARCHAR(50),
       dispositivo VARCHAR(100),
+      company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+      device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
+      telegram_sent BOOLEAN DEFAULT false,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
+
+  // Agregar campos opcionales si no existen (para migración)
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe o si companies no existe
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe o si devices no existe
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE alerts 
+      ADD COLUMN IF NOT EXISTS telegram_sent BOOLEAN DEFAULT false;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
+
+  // Crear índice para mejorar rendimiento de consultas
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_alerts_telegram_sent 
+      ON alerts(telegram_sent) 
+      WHERE telegram_sent = false;
+    `);
+  } catch (e) {
+    // Ignorar si ya existe
+  }
 
   // Tabla de historial de telemetría (para reportes)
   await pool.query(`

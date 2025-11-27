@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
-import { sendMail, render2FAEmail } from "@/lib/mailer";
+import { queueEmail, render2FAEmail } from "@/lib/mailer";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -74,12 +74,15 @@ export async function POST(req: Request) {
       [user.id, code2FA]
     );
 
-    // Enviar código 2FA por correo
-    await sendMail(
+    // Agregar email a la cola para ser procesado por el worker en segundo plano
+    queueEmail(
       email,
       "Código de verificación de dos factores",
       render2FAEmail(code2FA)
-    );
+    ).catch((err) => {
+      console.error("[login] Error agregando email 2FA a la cola:", err);
+      // No fallar el login si la cola falla
+    });
 
     // Retornar respuesta indicando que se requiere 2FA (sin crear token de sesión)
     return NextResponse.json({
